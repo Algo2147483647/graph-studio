@@ -1,13 +1,19 @@
-import type { ChangeEvent, Dispatch, KeyboardEvent, SetStateAction } from "react";
+import type { ChangeEvent, Dispatch, SetStateAction } from "react";
 import type { GraphAppearance, GraphLayoutAppearance } from "../../graph/appearance";
-import { GRAPH_APPEARANCE_PRESETS, type GraphAppearancePresetId } from "../../graph/appearanceCommands";
-import type { GraphLayoutMode, GraphTitleFontFamily } from "../../graph/types";
-import { GRAPH_TITLE_FONT_OPTIONS } from "../../graph/types";
+import { type GraphAppearancePresetId, GRAPH_APPEARANCE_PRESETS } from "../../graph/appearanceCommands";
+import type { GraphChartType, GraphLayoutMode } from "../../graph/types";
+import { getGraphChartLabel, GRAPH_TITLE_FONT_OPTIONS } from "../../graph/types";
+import AppearancePreview from "./AppearancePreview";
 import LayoutSliderControl from "./LayoutSliderControl";
 import { APPEARANCE_TOKEN_CONTROLS, LAYOUT_CONTROLS } from "./settingsConfig";
-import { clampNumberInput, parseCssPixelValue } from "./settingsUtils";
+import { clampNumberInput } from "./settingsUtils";
 
 interface AppearanceSettingsProps {
+  view?: "chart" | "appearance" | "layout";
+  query?: string;
+  chartType: GraphChartType;
+  sankeyUnavailableReason: string | null;
+  onChartTypeChange: (type: GraphChartType) => void;
   layoutMode: GraphLayoutMode;
   appearance: GraphAppearance;
   showNodeDetail: boolean;
@@ -24,7 +30,10 @@ interface AppearanceSettingsProps {
   onLayoutAppearanceChange: <K extends keyof GraphLayoutAppearance>(key: K, value: GraphLayoutAppearance[K]) => void;
   onAppearanceCssVarChange: (key: string, value: string) => void;
   onAppearanceCssChange: (css: string) => void;
-  onAppearanceDisplayChange: <K extends keyof GraphAppearance["display"]>(key: K, value: GraphAppearance["display"][K]) => void;
+  onAppearanceDisplayChange: <K extends keyof GraphAppearance["display"]>(
+    key: K,
+    value: GraphAppearance["display"][K],
+  ) => void;
   onAppearancePresetChange: (presetId: GraphAppearancePresetId) => void;
   onAppearanceReset: () => void;
   onAppearanceExport: () => void;
@@ -35,249 +44,534 @@ interface AppearanceSettingsProps {
   onNodeWidthAlignToggle: () => void;
 }
 
-export default function AppearanceSettings({
-  layoutMode,
-  appearance,
-  showNodeDetail,
-  hideNodeBorders,
-  alignNodeWidthsToMax,
-  appearanceCssDraft,
-  cssVarDrafts,
-  titleSizeDraft,
-  titleFontSize,
-  onAppearanceCssDraftChange,
-  onCssVarDraftsChange,
-  onTitleSizeDraftChange,
-  onLayoutModeChange,
-  onLayoutAppearanceChange,
-  onAppearanceCssVarChange,
-  onAppearanceCssChange,
-  onAppearanceDisplayChange,
-  onAppearancePresetChange,
-  onAppearanceReset,
-  onAppearanceExport,
-  onAppearanceImportClick,
-  onAppearanceImportChange,
-  onNodeDetailToggle,
-  onNodeBordersToggle,
-  onNodeWidthAlignToggle,
-}: AppearanceSettingsProps) {
-  const titleFontFamily = appearance.cssVars["--dag-title-font-family"] || GRAPH_TITLE_FONT_OPTIONS[0].value;
-  const titleFontStyle = appearance.cssVars["--dag-title-font-style"] === "normal" ? "normal" : "italic";
-  const titleFontWeight = appearance.cssVars["--dag-title-font-weight"] === "700" ? 700 : 400;
+export default function AppearanceSettings(p: AppearanceSettingsProps) {
+  const vars = p.appearance.cssVars;
+  const titleFamily = vars["--dag-title-font-family"] || GRAPH_TITLE_FONT_OPTIONS[0].value;
+  const selectedPreset = GRAPH_APPEARANCE_PRESETS.find(
+    (preset) => JSON.stringify(preset.appearance) === JSON.stringify(p.appearance),
+  );
+  const matches = (keywords: string) =>
+    !p.query ||
+    p.query
+      .toLowerCase()
+      .split(/\s+/)
+      .every((word) => keywords.toLowerCase().includes(word));
+  const isSankey = p.chartType === "sankey";
+  const context = (
+    <p className="settings-chart-context">
+      <strong>{getGraphChartLabel(p.chartType)}</strong>
+      <span>{p.view === "layout" ? "Layout settings" : "Independent appearance"}</span>
+    </p>
+  );
 
-  const commitAppearanceCssDraft = () => {
-    if (appearanceCssDraft !== appearance.css) {
-      onAppearanceCssChange(appearanceCssDraft);
-    }
-  };
+  if (p.view === "chart")
+    return (
+      <section className="settings-section">
+        <p>Choose how to represent your graph. Each type remembers its own appearance.</p>
+        <div className="chart-type-grid">
+          {(
+            [
+              ["node-link", "Node-link", "Nodes and connecting lines show relationships."],
+              ["sankey", "Sankey", "Band widths show the amount flowing between nodes."],
+              ["compound", "Nested node-link", "Group nodes into subgraphs, then expand, collapse and explore."],
+            ] as const
+          ).map(([value, label, description]) => (
+            <button
+              key={value}
+              aria-pressed={p.chartType === value}
+              className={p.chartType === value ? "is-selected" : ""}
+              disabled={value === "sankey" && Boolean(p.sankeyUnavailableReason)}
+              aria-describedby={value === "sankey" && p.sankeyUnavailableReason ? "sankey-requirements" : undefined}
+              onClick={() => p.onChartTypeChange(value)}
+            >
+              <svg viewBox="0 0 160 70" aria-hidden="true">
+                {value === "node-link" ? (
+                  <>
+                    <path d="M35 35H72L116 17M72 35L116 53" fill="none" stroke="currentColor" strokeWidth="2" />
+                    {[
+                      [18, 25],
+                      [116, 7],
+                      [116, 43],
+                    ].map(([x, y]) => (
+                      <rect key={y} x={x} y={y} width="28" height="20" rx="5" fill="white" stroke="currentColor" />
+                    ))}
+                  </>
+                ) : value === "compound" ? (
+                  <g fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="10" y="5" width="95" height="60" rx="5" />
+                    <rect x="20" y="22" width="45" height="33" rx="4" />
+                    <rect x="29" y="33" width="20" height="12" rx="2" />
+                    <path d="M49 39H125" />
+                    <rect x="125" y="29" width="25" height="20" rx="4" />
+                  </g>
+                ) : (
+                  <>
+                    <path
+                      d="M30 32C76 32 76 22 126 22"
+                      stroke="currentColor"
+                      strokeWidth="20"
+                      opacity=".3"
+                      fill="none"
+                    />
+                    <path
+                      d="M30 49C76 49 76 55 126 55"
+                      stroke="currentColor"
+                      strokeWidth="12"
+                      opacity=".5"
+                      fill="none"
+                    />
+                    <g fill="currentColor">
+                      <rect x="23" y="22" width="7" height="33" rx="2" />
+                      <rect x="126" y="12" width="7" height="20" rx="2" />
+                      <rect x="126" y="49" width="7" height="12" rx="2" />
+                    </g>
+                  </>
+                )}
+              </svg>
+              <strong>{label}</strong>
+              <small>{description}</small>
+            </button>
+          ))}
+        </div>
+        {p.sankeyUnavailableReason ? (
+          <p id="sankey-requirements" className="settings-chart-warning" role="status">
+            {p.sankeyUnavailableReason}
+          </p>
+        ) : (
+          <p>Sankey requires non-negative numeric edge values. Cycles are displayed as return flows.</p>
+        )}
+      </section>
+    );
 
-  const commitCssVarDraft = (key: string, value: string) => {
-    if ((appearance.cssVars[key] || "") !== value) {
-      onAppearanceCssVarChange(key, value);
-    }
-  };
-
-  const commitTitleSizeDraft = () => {
-    const value = `${clampNumberInput(titleSizeDraft, 10, 28, titleFontSize)}px`;
-    if (appearance.cssVars["--dag-title-font-size"] !== value) {
-      onAppearanceCssVarChange("--dag-title-font-size", value);
-    }
-    onTitleSizeDraftChange(String(parseCssPixelValue(value, titleFontSize)));
-  };
+  if (p.view === "layout")
+    return (
+      <>
+        {context}
+        {p.chartType === "node-link" &&
+          matches("layout engine algorithm level bfs sugiyama dagre layered node link") && (
+            <section className="settings-section">
+              <h3>Node-link layout</h3>
+              <p>Choose how nodes are arranged.</p>
+              <div className="layout-engine-grid">
+                {(
+                  [
+                    ["sugiyama", "Sugiyama", "Reduce crossings in connected graphs."],
+                    ["level", "BFS", "Follow the graph one level at a time."],
+                    ["dagre", "Dagre", "Balance complex directed layouts."],
+                  ] as const
+                ).map(([value, label, description]) => (
+                  <button
+                    key={value}
+                    className={p.layoutMode === value ? "is-selected" : ""}
+                    aria-pressed={p.layoutMode === value}
+                    onClick={() => p.onLayoutModeChange(value)}
+                  >
+                    <span className={`layout-mini layout-mini--${value}`} aria-hidden="true">
+                      <i />
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                    <strong>{label}</strong>
+                    <small>{description}</small>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+        {p.chartType === "compound" && (
+          <section className="settings-section">
+            <h3>Nested layout</h3>
+            <p>
+              ELK arranges nested containers and routes relationships across group boundaries. Expand and collapse
+              groups on the canvas.
+            </p>
+          </section>
+        )}
+        {isSankey && matches("layout sankey flow automatic width") && (
+          <section className="settings-section">
+            <h3>Automatic flow layout</h3>
+            <p>
+              Nodes follow the flow from left to right. Return flows run below the chart. Node heights and band widths
+              share one flow scale.
+            </p>
+            <div className="settings-slider-grid">
+              <DisplaySlider
+                label="Flow node width"
+                value={p.appearance.display.sankeyNodeWidth}
+                min={8}
+                max={48}
+                unit="px"
+                onChange={(value) => p.onAppearanceDisplayChange("sankeyNodeWidth", value)}
+              />
+            </div>
+          </section>
+        )}
+        {matches("layout spacing layer node line height width tuning") && (
+          <section className="settings-section">
+            <h3>Spacing & dimensions</h3>
+            <p>Fine-tune graph density and label room.</p>
+            <div className="settings-slider-grid">
+              {LAYOUT_CONTROLS.filter(
+                (control) =>
+                  !isSankey ||
+                  control.key === "rowGap" ||
+                  control.key === "maxNodeWidth" ||
+                  control.key === "nodeHeight",
+              ).map((control) => (
+                <LayoutSliderControl
+                  key={control.key}
+                  control={
+                    isSankey
+                      ? {
+                          ...control,
+                          label:
+                            control.key === "maxNodeWidth"
+                              ? "Label room"
+                              : control.key === "nodeHeight"
+                                ? "Vertical space per node"
+                                : control.label,
+                        }
+                      : control
+                  }
+                  value={p.appearance.layout[control.key]}
+                  onChange={(value) => p.onLayoutAppearanceChange(control.key, value)}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+      </>
+    );
 
   return (
     <>
-      <section className="settings-section appearance-actions-section" aria-labelledby="appearance-actions-title">
-        <p id="appearance-actions-title" className="control-label">UI Configuration</p>
-        <div className="workspace-action-row">
-          <label htmlFor="appearanceInput" className="ghost-btn settings-action-btn appearance-import-label">
-            Import
-            <input type="file" id="appearanceInput" accept=".json,application/json" onClick={onAppearanceImportClick} onChange={onAppearanceImportChange} />
-          </label>
-          <button type="button" className="ghost-btn settings-action-btn" onClick={onAppearanceExport}>Export</button>
-          <button type="button" className="ghost-btn settings-action-btn" onClick={onAppearanceReset}>Reset</button>
-        </div>
-      </section>
-
-      <section className="settings-section" aria-labelledby="layout-mode-title">
-        <label className="layout-select-label" htmlFor="layout-mode-select">
-          <span id="layout-mode-title" className="control-label">Layout</span>
-          <select
-            id="layout-mode-select"
-            className="layout-select"
-            value={layoutMode}
-            onChange={(event) => onLayoutModeChange(event.currentTarget.value as GraphLayoutMode)}
-          >
-            <option value="sugiyama">Sugiyama layered</option>
-            <option value="level">Level layout</option>
-            <option value="dagre">Dagre layered</option>
-          </select>
-        </label>
-      </section>
-
-      <section className="settings-section settings-section-emphasis" aria-labelledby="layout-tuning-title">
-        <div className="settings-section-header">
-          <p id="layout-tuning-title" className="control-label">Layout Tuning</p>
-        </div>
-        <div className="settings-slider-grid">
-          {LAYOUT_CONTROLS.map((control) => (
-            <LayoutSliderControl
-              key={control.key}
-              control={control}
-              value={appearance.layout[control.key]}
-              onChange={(value) => onLayoutAppearanceChange(control.key, value)}
+      {context}
+      {isSankey && matches("appearance sankey flow opacity bands") && (
+        <section className="settings-section">
+          <h3>Flow bands</h3>
+          <p>Colors follow the node and edge colors in your graph.</p>
+          <DisplaySlider
+            label="Flow opacity"
+            value={p.appearance.display.sankeyLinkOpacity}
+            min={5}
+            max={90}
+            unit="%"
+            onChange={(value) => p.onAppearanceDisplayChange("sankeyLinkOpacity", value)}
+          />
+        </section>
+      )}
+      {!p.query && (
+        <AppearancePreview
+          appearance={p.appearance}
+          chartType={p.chartType}
+          hideNodeBorders={p.hideNodeBorders}
+          showNodeDetail={p.showNodeDetail}
+        />
+      )}
+      {matches("appearance preset theme simple compact default slate blueprint contrast presentation") && (
+        <section className="settings-section">
+          <h3>Style presets</h3>
+          <p>A starting point for the current chart type. Customize any value below.</p>
+          <div className="preset-grid">
+            {GRAPH_APPEARANCE_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                className={selectedPreset?.id === preset.id ? "is-selected" : ""}
+                aria-pressed={selectedPreset?.id === preset.id}
+                onClick={() => p.onAppearancePresetChange(preset.id)}
+              >
+                <span
+                  className="preset-sample"
+                  style={{
+                    background: preset.appearance.cssVars["--dag-node-fill"],
+                    color: preset.appearance.cssVars["--dag-text-strong"],
+                    borderColor: preset.appearance.cssVars["--dag-node-border"],
+                  }}
+                >
+                  <i />
+                  Aa<span>→</span>
+                  <i />
+                </span>
+                <strong>{preset.label}</strong>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+      {matches("appearance shadow shadows elevation blur offset opacity depth") && (
+        <section className="settings-section">
+          <h3>Node shadows</h3>
+          <Toggle
+            label="Soft shadows"
+            description="A drop shadow beneath each node. These controls change the shadow, not the node fill. Dense graphs omit shadows for performance."
+            checked={p.appearance.display.nodeShadow}
+            onChange={() => p.onAppearanceDisplayChange("nodeShadow", !p.appearance.display.nodeShadow)}
+          />
+          <div className="settings-slider-grid">
+            <DisplaySlider
+              label="Shadow softness"
+              value={p.appearance.display.shadowBlur}
+              min={0}
+              max={32}
+              unit="px"
+              disabled={!p.appearance.display.nodeShadow}
+              onChange={(value) => p.onAppearanceDisplayChange("shadowBlur", value)}
             />
-          ))}
-        </div>
-      </section>
-
-      <section className="settings-section" aria-labelledby="appearance-presets-title">
-        <p id="appearance-presets-title" className="control-label">Preset</p>
-        <div className="workspace-action-row">
-          {GRAPH_APPEARANCE_PRESETS.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              className="ghost-btn settings-action-btn"
-              onClick={() => onAppearancePresetChange(preset.id)}
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="settings-section" aria-labelledby="appearance-tokens-title">
-        <p id="appearance-tokens-title" className="control-label">Tokens</p>
-        <div className="ai-settings-grid">
-          {APPEARANCE_TOKEN_CONTROLS.map((token) => (
-            <label key={token.key} className="settings-field-label" htmlFor={`appearance-token-${token.key}`}>
-              <span>{token.label}</span>
+            <DisplaySlider
+              label="Shadow distance"
+              value={p.appearance.display.shadowOffset}
+              min={0}
+              max={16}
+              unit="px"
+              disabled={!p.appearance.display.nodeShadow}
+              onChange={(value) => p.onAppearanceDisplayChange("shadowOffset", value)}
+            />
+            <DisplaySlider
+              label="Shadow opacity"
+              value={p.appearance.display.shadowOpacity}
+              min={0}
+              max={40}
+              unit="%"
+              disabled={!p.appearance.display.nodeShadow}
+              onChange={(value) => p.onAppearanceDisplayChange("shadowOpacity", value)}
+            />
+          </div>
+        </section>
+      )}
+      {matches("appearance colors tokens fill border root edge active title soft text") && (
+        <section className="settings-section">
+          <h3>Colors</h3>
+          <div className="color-settings-grid">
+            {APPEARANCE_TOKEN_CONTROLS.filter(
+              (token) =>
+                token.key !== "--dag-title-font-size" &&
+                (!isSankey || ["--dag-text-strong", "--dag-text-soft", "--dag-edge-active"].includes(token.key)),
+            ).map((token) => (
+              <label key={token.key}>
+                <span>{token.label}</span>
+                <div>
+                  <span className="color-swatch" style={{ background: vars[token.key] }} />
+                  <input
+                    aria-label={token.label}
+                    value={p.cssVarDrafts[token.key] ?? vars[token.key] ?? ""}
+                    onChange={(event) =>
+                      p.onCssVarDraftsChange((current) => ({ ...current, [token.key]: event.target.value }))
+                    }
+                    onBlur={(event) => p.onAppearanceCssVarChange(token.key, event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") event.currentTarget.blur();
+                    }}
+                  />
+                </div>
+              </label>
+            ))}
+          </div>
+        </section>
+      )}
+      {matches("appearance typography font title size bold italic") && (
+        <section className="settings-section">
+          <h3>Typography</h3>
+          <div className="typography-settings">
+            <label>
+              Title font
+              <select
+                aria-label="Title font"
+                value={titleFamily}
+                onChange={(event) => p.onAppearanceCssVarChange("--dag-title-font-family", event.target.value)}
+              >
+                {GRAPH_TITLE_FONT_OPTIONS.map((font) => (
+                  <option key={font.value} value={font.value}>
+                    {font.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Size (px)
               <input
-                id={`appearance-token-${token.key}`}
-                className="settings-text-input"
-                type="text"
-                value={cssVarDrafts[token.key] ?? appearance.cssVars[token.key] ?? ""}
-                onChange={(event) => onCssVarDraftsChange((current) => ({ ...current, [token.key]: event.currentTarget.value }))}
-                onBlur={(event) => commitCssVarDraft(token.key, event.currentTarget.value)}
-                onKeyDown={(event) => handleCssVarKeyDown(event, token.key, commitCssVarDraft)}
+                aria-label="Title font size"
+                type="number"
+                min="10"
+                max="28"
+                value={p.titleSizeDraft}
+                onChange={(event) => p.onTitleSizeDraftChange(event.target.value)}
+                onBlur={() =>
+                  p.onAppearanceCssVarChange(
+                    "--dag-title-font-size",
+                    `${clampNumberInput(p.titleSizeDraft, 10, 28, p.titleFontSize)}px`,
+                  )
+                }
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                }}
               />
             </label>
-          ))}
-        </div>
-      </section>
-
-      <section className="settings-section" aria-labelledby="appearance-css-title">
-        <p id="appearance-css-title" className="control-label">Custom CSS</p>
-        <textarea
-          className="settings-text-input appearance-css-editor"
-          value={appearanceCssDraft}
-          spellCheck={false}
-          rows={10}
-          onChange={(event) => onAppearanceCssDraftChange(event.currentTarget.value)}
-          onBlur={commitAppearanceCssDraft}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-              commitAppearanceCssDraft();
-              event.currentTarget.blur();
-            }
-          }}
-        />
-      </section>
-
-      <section className="settings-section title-style-section" aria-labelledby="title-style-title">
-        <p id="title-style-title" className="control-label">Title</p>
-        <div className="title-style-row">
-          <select
-            className="title-font-select"
-            value={titleFontFamily}
-            aria-label="Title font"
-            onChange={(event) => onAppearanceCssVarChange("--dag-title-font-family", event.currentTarget.value as GraphTitleFontFamily)}
-          >
-            {GRAPH_TITLE_FONT_OPTIONS.map((font) => (
-              <option key={font.value} value={font.value}>{font.label}</option>
-            ))}
-          </select>
-          <label className="title-size-control" htmlFor="title-font-size-input">
-            <input
-              id="title-font-size-input"
-              className="title-size-input"
-              type="number"
-              min={10}
-              max={28}
-              step={1}
-              value={titleSizeDraft}
-              aria-label="Title font size"
-              onChange={(event) => onTitleSizeDraftChange(event.currentTarget.value)}
-              onBlur={commitTitleSizeDraft}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  commitTitleSizeDraft();
-                  event.currentTarget.blur();
-                }
-              }}
-            />
-            <span className="title-size-unit">px</span>
-          </label>
-          <div className="title-format-buttons" role="group" aria-label="Title format">
             <button
-              type="button"
-              className={`title-format-btn${titleFontWeight === 700 ? " is-active" : ""}`}
-              title="Bold"
+              className="studio-button"
               aria-label="Bold title"
-              aria-pressed={titleFontWeight === 700}
-              onClick={() => onAppearanceCssVarChange("--dag-title-font-weight", titleFontWeight === 700 ? "400" : "700")}
+              aria-pressed={vars["--dag-title-font-weight"] === "700"}
+              onClick={() =>
+                p.onAppearanceCssVarChange(
+                  "--dag-title-font-weight",
+                  vars["--dag-title-font-weight"] === "700" ? "400" : "700",
+                )
+              }
             >
-              B
+              <b>B</b>
             </button>
             <button
-              type="button"
-              className={`title-format-btn title-format-btn-italic${titleFontStyle === "italic" ? " is-active" : ""}`}
-              title="Italic"
+              className="studio-button"
               aria-label="Italic title"
-              aria-pressed={titleFontStyle === "italic"}
-              onClick={() => onAppearanceCssVarChange("--dag-title-font-style", titleFontStyle === "italic" ? "normal" : "italic")}
+              aria-pressed={vars["--dag-title-font-style"] === "italic"}
+              onClick={() =>
+                p.onAppearanceCssVarChange(
+                  "--dag-title-font-style",
+                  vars["--dag-title-font-style"] === "italic" ? "normal" : "italic",
+                )
+              }
             >
-              I
+              <i>I</i>
             </button>
           </div>
-        </div>
-      </section>
-
-      <section className="settings-section" aria-labelledby="view-options-title">
-        <p id="view-options-title" className="control-label">View</p>
-        <div className="workspace-action-row">
-          <button type="button" className={`ghost-btn settings-action-btn${showNodeDetail ? " settings-action-btn-active" : ""}`} aria-pressed={showNodeDetail} onClick={onNodeDetailToggle}>
-            {showNodeDetail ? "Hide Details" : "Show Details"}
-          </button>
-          <button type="button" className={`ghost-btn settings-action-btn${hideNodeBorders ? " settings-action-btn-active" : ""}`} aria-pressed={hideNodeBorders} onClick={onNodeBordersToggle}>
-            {hideNodeBorders ? "Show Borders" : "Hide Borders"}
-          </button>
-          <button type="button" className={`ghost-btn settings-action-btn${alignNodeWidthsToMax ? " settings-action-btn-active" : ""}`} aria-pressed={alignNodeWidthsToMax} onClick={onNodeWidthAlignToggle}>
-            {alignNodeWidthsToMax ? "Auto Width" : "Max Width"}
-          </button>
-          <button
-            type="button"
-            className={`ghost-btn settings-action-btn${appearance.display.showEdgeLabels ? " settings-action-btn-active" : ""}`}
-            aria-pressed={appearance.display.showEdgeLabels}
-            onClick={() => onAppearanceDisplayChange("showEdgeLabels", !appearance.display.showEdgeLabels)}
-          >
-            {appearance.display.showEdgeLabels ? "Hide Edge Labels" : "Show Edge Labels"}
-          </button>
-        </div>
-      </section>
+        </section>
+      )}
+      {matches("appearance visibility view details descriptions borders width labels edges") && (
+        <section className="settings-section">
+          <h3>Visible details</h3>
+          {!isSankey && (
+            <Toggle
+              label="Node descriptions"
+              description="Show a short description under each title."
+              checked={p.showNodeDetail}
+              onChange={p.onNodeDetailToggle}
+            />
+          )}
+          <Toggle
+            label="Node borders"
+            description="Draw an outline around nodes."
+            checked={!p.hideNodeBorders}
+            onChange={p.onNodeBordersToggle}
+          />
+          {!isSankey && (
+            <Toggle
+              label="Equal node widths"
+              description="Align nodes to the widest visible node."
+              checked={p.alignNodeWidthsToMax}
+              onChange={p.onNodeWidthAlignToggle}
+            />
+          )}
+          <Toggle
+            label="Edge labels"
+            description="Show the relation value beside each edge."
+            checked={p.appearance.display.showEdgeLabels}
+            onChange={() => p.onAppearanceDisplayChange("showEdgeLabels", !p.appearance.display.showEdgeLabels)}
+          />
+        </section>
+      )}
+      {matches("appearance custom css advanced stylesheet configuration import export reset") && (
+        <details className="settings-advanced" open={Boolean(p.query)}>
+          <summary>Advanced appearance</summary>
+          <section className="settings-section">
+            <h3>Custom graph CSS</h3>
+            <p>Overrides graph styles, including the exported SVG.</p>
+            <textarea
+              aria-label="Custom graph CSS"
+              className="appearance-css-editor"
+              spellCheck={false}
+              value={p.appearanceCssDraft}
+              rows={10}
+              onChange={(event) => p.onAppearanceCssDraftChange(event.target.value)}
+            />
+            <button
+              className="studio-button"
+              onClick={() => p.onAppearanceCssChange(p.appearanceCssDraft)}
+              disabled={p.appearanceCssDraft === p.appearance.css}
+            >
+              Apply CSS
+            </button>
+            <h3>Appearance configuration</h3>
+            <div className="settings-inline-actions">
+              <label className="studio-button settings-file-input">
+                Import configuration
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  aria-label="Import appearance configuration"
+                  onClick={p.onAppearanceImportClick}
+                  onChange={p.onAppearanceImportChange}
+                />
+              </label>
+              <button className="studio-button" onClick={p.onAppearanceExport}>
+                Export configuration
+              </button>
+              <button className="studio-button subtle-danger" onClick={p.onAppearanceReset}>
+                Reset appearance
+              </button>
+            </div>
+          </section>
+        </details>
+      )}
     </>
   );
 }
+function Toggle({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <label className="settings-toggle-row">
+      <span>
+        <strong>{label}</strong>
+        <small>{description}</small>
+      </span>
+      <input type="checkbox" role="switch" checked={checked} onChange={onChange} />
+    </label>
+  );
+}
 
-function handleCssVarKeyDown(
-  event: KeyboardEvent<HTMLInputElement>,
-  key: string,
-  commitCssVarDraft: (key: string, value: string) => void,
-) {
-  if (event.key === "Enter") {
-    commitCssVarDraft(key, event.currentTarget.value);
-    event.currentTarget.blur();
-  }
+function DisplaySlider({
+  label,
+  value,
+  min,
+  max,
+  unit,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  unit: string;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="display-slider">
+      <span>
+        {label}
+        <output>
+          {value}
+          {unit}
+        </output>
+      </span>
+      <input
+        type="range"
+        aria-label={label}
+        min={min}
+        max={max}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
+  );
 }

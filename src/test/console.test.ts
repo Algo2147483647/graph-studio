@@ -1,18 +1,17 @@
 import assert from "node:assert/strict";
 import { parseConsoleSource } from "../console/dsl";
-import { buildConsoleMutationLabel, collectBatchEffects, executeConsoleInstructions } from "../console/executor";
+import { buildConsoleMutationLabel, executeConsoleInstructions } from "../console/executor";
 import { DEFAULT_GRAPH_APPEARANCE } from "../graph/appearance";
-import { defineSuite, defineTest } from "./harness";
+import { collectBatchEffects } from "../graph/commandEffects";
+import { createGraphDocument } from "../graph/normalize";
 import { createSampleDag } from "./fixtures";
+import { defineSuite, defineTest } from "./harness";
 
 export const consoleSuite = defineSuite("console", [
   defineTest("parser accepts comments, quoted strings, and create-missing edges", () => {
-    const parsed = parseConsoleSource([
-      "# comment",
-      "/use A",
-      "/set . define \"hello world\"",
-      "/edge . Missing_Node true --create-missing",
-    ].join("\n"));
+    const parsed = parseConsoleSource(
+      ["# comment", "/use A", '/set . define "hello world"', "/edge . Missing_Node true --create-missing"].join("\n"),
+    );
 
     assert.equal(parsed.ok, true);
     if (!parsed.ok) {
@@ -39,12 +38,7 @@ export const consoleSuite = defineSuite("console", [
 
   defineTest("parser and executor accept clear inside multiline batches", () => {
     const dag = createSampleDag();
-    const parsed = parseConsoleSource([
-      "/use A",
-      "/clear",
-      "/cls",
-      "/set . type concept",
-    ].join("\n"));
+    const parsed = parseConsoleSource(["/use A", "/clear", "/cls", "/set . type concept"].join("\n"));
 
     assert.equal(parsed.ok, true);
     if (!parsed.ok) {
@@ -62,7 +56,7 @@ export const consoleSuite = defineSuite("console", [
       return;
     }
 
-    assert.equal(executed.dag.A.type, "concept");
+    assert.equal(executed.dag.nodes.A.type, "concept");
     assert.equal(executed.contextNodeKey, "A");
     assert.equal(executed.instructionCount, 4);
     assert.equal(executed.mutationCount, 1);
@@ -89,12 +83,7 @@ export const consoleSuite = defineSuite("console", [
   }),
 
   defineTest("read-only graph analysis commands inspect data without mutations", () => {
-    const parsed = parseConsoleSource([
-      "/graph",
-      "/find \"Alpha\"",
-      "/neighbors A 2",
-      "/path A D",
-    ].join("\n"));
+    const parsed = parseConsoleSource(["/graph", '/find "Alpha"', "/neighbors A 2", "/path A D"].join("\n"));
 
     assert.equal(parsed.ok, true);
     if (!parsed.ok) {
@@ -130,18 +119,20 @@ export const consoleSuite = defineSuite("console", [
   }),
 
   defineTest("appearance commands update layout variables and CSS without graph mutations", () => {
-    const parsed = parseConsoleSource([
-      "/layout rowGap 44",
-      "/style-var --dag-node-fill \"#101827\"",
-      "/style-css append \".dag-node__shape { stroke-width: 2; }\"",
-    ].join("\n"));
+    const parsed = parseConsoleSource(
+      [
+        "/layout rowGap 44",
+        '/style-var --dag-node-fill "#101827"',
+        '/style-css append ".dag-node__shape { stroke-width: 2; }"',
+      ].join("\n"),
+    );
 
     assert.equal(parsed.ok, true);
     if (!parsed.ok) {
       return;
     }
 
-    const executed = executeConsoleInstructions(createSampleDag(), parsed.instructions, null, undefined, DEFAULT_GRAPH_APPEARANCE);
+    const executed = executeConsoleInstructions(createSampleDag(), parsed.instructions, null, DEFAULT_GRAPH_APPEARANCE);
     assert.equal(executed.ok, true);
     if (!executed.ok) {
       return;
@@ -161,7 +152,12 @@ export const consoleSuite = defineSuite("console", [
       return;
     }
 
-    const executed = executeConsoleInstructions({}, parsed.instructions, null, undefined, DEFAULT_GRAPH_APPEARANCE);
+    const executed = executeConsoleInstructions(
+      createGraphDocument(),
+      parsed.instructions,
+      null,
+      DEFAULT_GRAPH_APPEARANCE,
+    );
     assert.equal(executed.ok, true);
     if (!executed.ok) {
       return;
@@ -174,13 +170,15 @@ export const consoleSuite = defineSuite("console", [
 
   defineTest("executor applies batch mutations and tracks ui effects", () => {
     const dag = createSampleDag();
-    const parsed = parseConsoleSource([
-      "/use A",
-      "/add New_Node -p .",
-      "/set New_Node title \"Created from console\"",
-      "/json New_Node",
-      "/mv New_Node Final_Node",
-    ].join("\n"));
+    const parsed = parseConsoleSource(
+      [
+        "/use A",
+        "/add New_Node -p .",
+        '/set New_Node title "Created from console"',
+        "/json New_Node",
+        "/mv New_Node Final_Node",
+      ].join("\n"),
+    );
 
     assert.equal(parsed.ok, true);
     if (!parsed.ok) {
@@ -193,15 +191,18 @@ export const consoleSuite = defineSuite("console", [
       return;
     }
 
-    assert.ok(executed.dag.Final_Node);
-    assert.equal(executed.dag.Final_Node.title, "Created from console");
+    assert.ok(executed.dag.nodes.Final_Node);
+    assert.equal(executed.dag.nodes.Final_Node.title, "Created from console");
     assert.equal(executed.contextNodeKey, "A");
     assert.equal(executed.uiEffects.at(-1)?.type, "json");
     assert.equal(executed.mutationCount, 3);
 
     const batchEffects = collectBatchEffects(executed.results);
     assert.deepEqual(batchEffects.renamedKeys, [{ from: "New_Node", to: "Final_Node" }]);
-    assert.equal(buildConsoleMutationLabel(executed.mutationCount, executed.results.at(-1)?.message), "Executed 3 console commands.");
+    assert.equal(
+      buildConsoleMutationLabel(executed.mutationCount, executed.results.at(-1)?.message),
+      "Executed 3 console commands.",
+    );
   }),
 
   defineTest("executor returns line-aware errors when context is missing", () => {

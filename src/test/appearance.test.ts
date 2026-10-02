@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { DEFAULT_GRAPH_APPEARANCE, sanitizeGraphAppearance } from "../graph/appearance";
+import { appearanceToStageStyle, DEFAULT_GRAPH_APPEARANCE, sanitizeGraphAppearance } from "../graph/appearance";
 import { buildStageData } from "../layout/stage-layout";
 import { parseGraphPagePreferences } from "../state/preferences";
-import { defineSuite, defineTest } from "./harness";
 import { createSampleDag } from "./fixtures";
+import { defineSuite, defineTest } from "./harness";
 
 export const appearanceSuite = defineSuite("appearance", [
   defineTest("sanitizeGraphAppearance fills defaults and clamps layout values", () => {
@@ -49,8 +49,27 @@ export const appearanceSuite = defineSuite("appearance", [
   }),
 
   defineTest("default root and active node fills follow the configured node fill", () => {
+    assert.equal(DEFAULT_GRAPH_APPEARANCE.cssVars["--dag-node-fill"], "#ffffff");
     assert.match(DEFAULT_GRAPH_APPEARANCE.css, /fill:\s*var\(--dag-node-root-fill,\s*var\(--dag-node-fill\)\)/);
     assert.match(DEFAULT_GRAPH_APPEARANCE.css, /fill:\s*var\(--dag-node-active-fill,\s*var\(--dag-node-fill\)\)/);
+  }),
+
+  defineTest("legacy translucent cards become white and shadow changes do not recolor them", () => {
+    const legacy = sanitizeGraphAppearance({ cssVars: { "--dag-node-fill": "rgba(252, 253, 255, 0.88)" } });
+    assert.equal(legacy.cssVars["--dag-node-fill"], "#ffffff");
+    const changed = sanitizeGraphAppearance({
+      ...legacy,
+      display: { ...legacy.display, shadowBlur: 24, shadowOffset: 10, shadowOpacity: 35 },
+    });
+    const before = appearanceToStageStyle(legacy) as Record<string, unknown>;
+    const after = appearanceToStageStyle(changed) as Record<string, unknown>;
+    assert.equal(after["--dag-node-fill"], "#ffffff");
+    assert.notEqual(before["--dag-node-shadow"], after["--dag-node-shadow"]);
+    assert.deepEqual(changed.cssVars, legacy.cssVars);
+    assert.equal(
+      sanitizeGraphAppearance({ cssVars: { "--dag-node-fill": "#ffeedd" } }).cssVars["--dag-node-fill"],
+      "#ffeedd",
+    );
   }),
 
   defineTest("latest preferences parse appearance directly", () => {
@@ -72,10 +91,10 @@ export const appearanceSuite = defineSuite("appearance", [
     });
     const parsed = parseGraphPagePreferences(raw);
 
-    assert.equal(parsed?.appearance?.layout.columnGap, 144);
-    assert.equal(parsed?.appearance?.display.showEdgeLabels, false);
-    assert.equal(parsed?.appearance?.cssVars["--dag-title-font-size"], "18px");
-    assert.equal(parsed?.appearance?.cssVars["--dag-title-font-style"], "normal");
+    assert.equal(parsed?.chartStyles?.["node-link"].appearance?.layout.columnGap, 144);
+    assert.equal(parsed?.chartStyles?.["node-link"].appearance?.display.showEdgeLabels, false);
+    assert.equal(parsed?.chartStyles?.["node-link"].appearance?.cssVars["--dag-title-font-size"], "18px");
+    assert.equal(parsed?.chartStyles?.["node-link"].appearance?.cssVars["--dag-title-font-style"], "normal");
   }),
 
   defineTest("buildStageData uses appearance layout minimum stage size", () => {

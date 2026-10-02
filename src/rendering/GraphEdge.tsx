@@ -15,9 +15,20 @@ const GraphEdge = memo(function GraphEdge({ edge, showLabel }: GraphEdgeProps) {
       data-weight={String(edge.weight ?? "")}
       data-label={edge.label}
       data-active="false"
+      data-feedback={edge.flow?.feedback || undefined}
     >
-      <path className="dag-edge__path" d={edge.path} markerEnd="url(#arrowhead)" />
-      {showLabel && edge.label ? <EdgeLabel label={edge.label} x={edge.labelPosition.x} y={edge.labelPosition.y} /> : null}
+      <title>{edge.description || `${edge.source} → ${edge.target}: ${edge.label}`}</title>
+      {edge.flow ? (
+        <path className="dag-edge__flow" d={edge.path} stroke={edge.flow.color} strokeWidth={edge.flow.width} />
+      ) : (
+        <path className="dag-edge__path" d={edge.path} markerEnd="url(#arrowhead)" />
+      )}
+      {edge.flow?.directionPath && (
+        <path d={edge.flow.directionPath} fill="none" stroke={edge.flow.color} strokeWidth={2} pointerEvents="none" />
+      )}
+      {showLabel && edge.label ? (
+        <EdgeLabel label={edge.label} x={edge.labelPosition.x} y={edge.labelPosition.y} />
+      ) : null}
     </g>
   );
 }, areEqualGraphEdgeProps);
@@ -33,7 +44,15 @@ function EdgeLabel({ label, x, y }: { label: string; x: number; y: number }) {
 
   return (
     <>
-      <rect className="dag-edge__label-bg" x={x - labelWidth / 2} y={y - 10} width={labelWidth} height={16} rx={8} ry={8} />
+      <rect
+        className="dag-edge__label-bg"
+        x={x - labelWidth / 2}
+        y={y - 10}
+        width={labelWidth}
+        height={16}
+        rx={8}
+        ry={8}
+      />
       <text className="dag-edge__label-text" x={x} y={y + 1} textAnchor="middle">
         {label}
       </text>

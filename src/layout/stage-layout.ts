@@ -1,17 +1,20 @@
 import { getNodeChildKeys, getNodeChildren, getNodeType } from "../graph/accessors";
-import { getDefaultFieldMapping, type FieldMapping } from "../graph/fieldMapping";
-import type { GraphLayoutMode, GraphSelection, NodeKey, NormalizedDag, RelationValue } from "../graph/types";
-import { DEFAULT_GRAPH_APPEARANCE, type GraphAppearance, type GraphLayoutAppearance } from "../graph/appearance";
+import { type GraphLayoutAppearance, DEFAULT_GRAPH_APPEARANCE } from "../graph/appearance";
 import { getRelationKeys } from "../graph/relations";
-import { structuredCloneValue } from "../graph/serialize";
-import { resolveStageEdgeGeometry } from "./edgeGeometry";
-import { getNodeVisual, truncateTitleToWidth, wrapDetailText } from "./text";
-import { resolveStageSelection, withSyntheticSelectionRoot } from "./selection";
-import type { LayoutRoutePoint, StageData, StageNode, StageNodeColorTokens, StageRoutePoint } from "./types";
-import { buildLevelLayout } from "./algorithms/level";
+import { getSankeyError } from "../graph/sankey";
+import { cloneGraphDocument } from "../graph/serialize";
+import { collectDescendantKeys } from "../graph/traversal";
+import type { GraphRenderMode, GraphSelection, NodeKey, NormalizedDag, RelationValue } from "../graph/types";
 import { buildDagreLayout } from "./algorithms/dagre";
+import { buildLevelLayout } from "./algorithms/level";
+import { buildSankeyStage } from "./algorithms/sankey";
 import { buildSugiyamaLayout } from "./algorithms/sugiyama";
+import type { StageAppearance } from "./appearance";
+import { resolveStageEdgeGeometry } from "./edgeGeometry";
+import { resolveStageSelection, withSyntheticSelectionRoot } from "./selection";
 import { buildSugiyamaStageRoutes, buildSugiyamaVerticalPlanner } from "./sugiyama-edge-routing";
+import { getNodeVisual, truncateTitleToWidth, wrapDetailText } from "./text";
+import type { LayoutRoutePoint, StageData, StageNode, StageNodeColorTokens, StageRoutePoint } from "./types";
 
 const DETAIL_HORIZONTAL_INSET = 74;
 const DETAIL_MIN_LINE_WIDTH = 72;
@@ -35,36 +38,55 @@ const TYPE_COLOR_SWATCHES = [
 
 export function buildStageData(input: {
   dag: NormalizedDag;
-  mapping?: FieldMapping;
+  colorSourceDag?: NormalizedDag;
+
   selection: GraphSelection | null;
-  layoutMode?: GraphLayoutMode;
-  appearance?: GraphAppearance;
+  layoutMode?: GraphRenderMode;
+  appearance?: StageAppearance;
   showNodeDetail?: boolean;
   alignNodeWidthsToMax?: boolean;
 }): StageData | null {
-  const { dag: sourceDag, mapping = getDefaultFieldMapping(), selection: requestedSelection, layoutMode = "sugiyama", appearance = DEFAULT_GRAPH_APPEARANCE, showNodeDetail = true, alignNodeWidthsToMax = false } = input;
+  const {
+    dag: sourceDag,
+    selection: requestedSelection,
+    layoutMode = sourceDag.diagram === "sankey" ? "sankey" : "sugiyama",
+    appearance = DEFAULT_GRAPH_APPEARANCE,
+    showNodeDetail = true,
+    alignNodeWidthsToMax = false,
+  } = input;
   const theme = appearance.layout;
-  if (!sourceDag || Object.keys(sourceDag).length === 0) {
+  if (!sourceDag || Object.keys(sourceDag.nodes).length === 0) {
     return null;
   }
 
-  const dag = structuredCloneValue(sourceDag);
-  const selection = resolveStageSelection(dag, requestedSelection, mapping);
-  const layoutDag = withSyntheticSelectionRoot(dag, selection, mapping);
+  const dag = cloneGraphDocument(sourceDag);
+  const selection = resolveStageSelection(dag, requestedSelection);
+  const layoutDag = withSyntheticSelectionRoot(dag, selection);
   const forestTopLevelSet = new Set(selection.topLevelKeys);
   const layoutRoots = selection.isForest ? selection.topLevelKeys : [selection.rootKey];
-  const reachable = selection.isForest
-    ? collectReachableFromRoots(layoutDag, selection.topLevelKeys, mapping)
-    : collectReachableNodes(layoutDag, selection.rootKey, mapping);
-  const typeColorMap = buildTypeColorMap(sourceDag, mapping);
-  const visualByKey = buildNodeVisualMap(layoutDag, reachable, mapping, theme, showNodeDetail, alignNodeWidthsToMax);
-  const layoutResult = resolveLayout(layoutMode, layoutDag, layoutRoots, mapping, visualByKey, theme);
+  const reachable =
+    layoutMode === "sankey" && selection.appSelection.type === "full"
+      ? new Set(Object.keys(sourceDag.nodes))
+      : new Set(collectDescendantKeys(layoutDag, layoutRoots));
+  const typeColorMap = buildTypeColorMap(input.colorSourceDag ?? sourceDag);
+  const edgeIds = new Map(sourceDag.edges.map((edge) => [JSON.stringify([edge.source, edge.target]), edge.id]));
+  const visualByKey = buildNodeVisualMap(layoutDag, reachable, theme, showNodeDetail, alignNodeWidthsToMax);
+  if (layoutMode === "sankey") {
+    const error = getSankeyError(sourceDag.nodes, sourceDag.edges);
+    if (error) {
+      const fallback = buildStageData({ ...input, layoutMode: "sugiyama" });
+      if (fallback) fallback.warnings.unshift(`${error} Showing the layered layout.`);
+      return fallback;
+    }
+    return buildSankeyStage(sourceDag, reachable, selection, visualByKey, appearance);
+  }
+  const layoutResult = resolveLayout(layoutMode, layoutDag, layoutRoots, visualByKey, theme);
   const coordinates = layoutResult.coordinates;
   const nodeKeys = Array.from(reachable).filter((key) => layoutDag[key] && coordinates.has(key));
   const nodesByLayer = new Map<number, StageNode[]>();
-  const nodeMap: Record<NodeKey, StageNode> = {};
+  const nodeMap: Record<NodeKey, StageNode> = Object.create(null);
   const edges: StageData["edges"] = [];
-  const incomingMap = buildIncomingMap(layoutDag, nodeKeys, mapping);
+  const incomingMap = buildIncomingMap(layoutDag, nodeKeys);
 
   nodeKeys.forEach((nodeKey) => {
     const node = layoutDag[nodeKey];
@@ -75,7 +97,7 @@ export function buildStageData(input: {
     }
 
     const [layer, order] = coordinate;
-    const typeLabel = normalizeTypeLabel(getNodeType(node, mapping));
+    const typeLabel = normalizeTypeLabel(getNodeType(node));
     const nodeData: StageNode = {
       key: nodeKey,
       layer,
@@ -84,7 +106,11 @@ export function buildStageData(input: {
       displayTitle: truncateTitleToWidth(visual.title, visual.width),
       detail: visual.detail,
       detailLines: visual.detail
-        ? wrapDetailText(visual.detail, Math.max(visual.width - DETAIL_HORIZONTAL_INSET, DETAIL_MIN_LINE_WIDTH), DETAIL_MAX_LINES)
+        ? wrapDetailText(
+            visual.detail,
+            Math.max(visual.width - DETAIL_HORIZONTAL_INSET, DETAIL_MIN_LINE_WIDTH),
+            DETAIL_MAX_LINES,
+          )
         : [],
       typeLabel,
       colorTokens: typeLabel ? typeColorMap.get(typeLabel) : undefined,
@@ -102,11 +128,12 @@ export function buildStageData(input: {
     nodeMap[nodeKey] = nodeData;
   });
 
-  const fallbackSlotCounts = new Map(Array.from(nodesByLayer.entries()).map(([layer, layerNodes]) => [layer, layerNodes.length]));
-  const sortedLayers = Array.from(new Set([
-    ...nodesByLayer.keys(),
-    ...(layoutResult.layerSlotCounts?.keys() || []),
-  ])).sort((a, b) => a - b);
+  const fallbackSlotCounts = new Map(
+    Array.from(nodesByLayer.entries()).map(([layer, layerNodes]) => [layer, layerNodes.length]),
+  );
+  const sortedLayers = Array.from(
+    new Set([...nodesByLayer.keys(), ...(layoutResult.layerSlotCounts?.keys() || [])]),
+  ).sort((a, b) => a - b);
 
   let laneCenters = new Map<number, number>();
   let lanes: StageData["lanes"] = [];
@@ -161,7 +188,7 @@ export function buildStageData(input: {
         });
       }
 
-       if (layoutMode === "sugiyama" && sugiyamaVerticalPlanner) {
+      if (layoutMode === "sugiyama" && sugiyamaVerticalPlanner) {
         layerNodes.forEach((nodeData) => {
           const displayOrder = sugiyamaVerticalPlanner?.nodeDisplayOrderByKey.get(nodeData.key);
           const centerY = sugiyamaVerticalPlanner?.nodeCenterYByKey.get(nodeData.key);
@@ -210,38 +237,41 @@ export function buildStageData(input: {
     stageHeight = stageInnerHeight + theme.stagePaddingY * 2;
   }
 
-  const sugiyamaStageRoutes = layoutMode === "sugiyama"
+  const sugiyamaStageRoutes =
+    layoutMode === "sugiyama"
       ? buildSugiyamaStageRoutes({
           edgeRoutes: layoutResult.edgeRoutes,
           nodeMap,
           nodesByLayer,
-          laneCenters,
-          planner: sugiyamaVerticalPlanner || buildSugiyamaVerticalPlanner({
-            nodesByLayer,
-            logicalSlotCountsByLayer: slotCountsByLayer,
-            sortedLayers,
-            theme,
-          }),
+          planner:
+            sugiyamaVerticalPlanner ||
+            buildSugiyamaVerticalPlanner({
+              nodesByLayer,
+              logicalSlotCountsByLayer: slotCountsByLayer,
+              sortedLayers,
+              theme,
+            }),
         })
-    : undefined;
+      : undefined;
 
   nodeKeys.forEach((sourceKey) => {
     const sourceNode = layoutDag[sourceKey];
-    const children = getNodeChildren(sourceNode, mapping);
+    const children = getNodeChildren(sourceNode);
     const childKeys = getRelationKeys(children);
     childKeys.forEach((targetKey) => {
       if (!nodeMap[targetKey]) {
         return;
       }
       const weight = Array.isArray(children) ? 1 : (children as Record<NodeKey, RelationValue>)[targetKey];
-      const route = layoutResult.edgeRoutes?.get(`${sourceKey}-->${targetKey}`);
-      const points = layoutMode === "sugiyama"
-        ? sugiyamaStageRoutes?.get(`${sourceKey}-->${targetKey}`)
-        : route?.points.map((point) => (
-            getRoutePointPosition(point, laneCenters, slotCountsByLayer, stageInnerHeight, theme, absoluteOffset)
-          ));
+      const route = layoutResult.edgeRoutes?.get(JSON.stringify([sourceKey, targetKey]));
+      const points =
+        layoutMode === "sugiyama"
+          ? sugiyamaStageRoutes?.get(JSON.stringify([sourceKey, targetKey]))
+          : route?.points.map((point) =>
+              getRoutePointPosition(point, laneCenters, slotCountsByLayer, stageInnerHeight, theme, absoluteOffset),
+            );
       edges.push({
-        id: `${sourceKey}-->${targetKey}`,
+        id: edgeIds.get(JSON.stringify([sourceKey, targetKey]))!,
         source: sourceKey,
         target: targetKey,
         weight,
@@ -284,30 +314,28 @@ export function buildStageData(input: {
 }
 
 function resolveLayout(
-  layoutMode: GraphLayoutMode,
-  layoutDag: Record<NodeKey, NormalizedDag[NodeKey] | undefined>,
+  layoutMode: GraphRenderMode,
+  layoutDag: Record<NodeKey, NormalizedDag["nodes"][NodeKey] | undefined>,
   layoutRoots: NodeKey[],
-  mapping: FieldMapping,
   visualByKey: Map<NodeKey, { width: number }>,
   theme: GraphLayoutAppearance,
 ) {
   if (layoutMode === "sugiyama") {
-    return buildSugiyamaLayout(layoutDag, layoutRoots, mapping);
+    return buildSugiyamaLayout(layoutDag, layoutRoots);
   }
   if (layoutMode === "dagre") {
     const nodeSizes = new Map<NodeKey, { width: number; height: number }>();
     visualByKey.forEach((visual, nodeKey) => {
       nodeSizes.set(nodeKey, { width: visual.width, height: theme.nodeHeight });
     });
-    return buildDagreLayout(layoutDag, layoutRoots, mapping, nodeSizes);
+    return buildDagreLayout(layoutDag, layoutRoots, nodeSizes);
   }
-  return buildLevelLayout(layoutDag, layoutRoots, mapping);
+  return buildLevelLayout(layoutDag, layoutRoots);
 }
 
 function buildNodeVisualMap(
-  dag: Record<NodeKey, NormalizedDag[NodeKey] | undefined>,
+  dag: Record<NodeKey, NormalizedDag["nodes"][NodeKey] | undefined>,
   nodeKeys: Set<NodeKey>,
-  mapping: FieldMapping,
   theme: GraphLayoutAppearance,
   showNodeDetail: boolean,
   alignNodeWidthsToMax: boolean,
@@ -318,33 +346,20 @@ function buildNodeVisualMap(
     if (!node) {
       return;
     }
-    visuals.set(nodeKey, getNodeVisual(nodeKey, node, mapping, theme.minNodeWidth, theme.maxNodeWidth, showNodeDetail, alignNodeWidthsToMax));
+    visuals.set(
+      nodeKey,
+      getNodeVisual(nodeKey, node, theme.minNodeWidth, theme.maxNodeWidth, showNodeDetail, alignNodeWidthsToMax),
+    );
   });
   return visuals;
 }
 
-function collectReachableNodes(dag: Record<NodeKey, NormalizedDag[NodeKey] | undefined>, root: NodeKey, mapping: FieldMapping): Set<NodeKey> {
-  return collectReachableFromRoots(dag, [root], mapping);
-}
-
-function collectReachableFromRoots(dag: Record<NodeKey, NormalizedDag[NodeKey] | undefined>, roots: NodeKey[], mapping: FieldMapping): Set<NodeKey> {
-  const visited = new Set<NodeKey>();
-  const stack = roots.slice();
-  while (stack.length) {
-    const nodeKey = stack.pop()!;
-    const node = dag[nodeKey];
-    if (visited.has(nodeKey) || !node) {
-      continue;
-    }
-    visited.add(nodeKey);
-    getNodeChildKeys(node, mapping).forEach((childKey) => stack.push(childKey));
-  }
-  return visited;
-}
-
-function buildIncomingMap(dag: Record<NodeKey, NormalizedDag[NodeKey] | undefined>, nodeKeys: NodeKey[], mapping: FieldMapping): Record<NodeKey, NodeKey[]> {
+function buildIncomingMap(
+  dag: Record<NodeKey, NormalizedDag["nodes"][NodeKey] | undefined>,
+  nodeKeys: NodeKey[],
+): Record<NodeKey, NodeKey[]> {
   const visibleKeys = new Set(nodeKeys);
-  const incomingMap: Record<NodeKey, NodeKey[]> = {};
+  const incomingMap: Record<NodeKey, NodeKey[]> = Object.create(null);
   nodeKeys.forEach((nodeKey) => {
     incomingMap[nodeKey] = [];
   });
@@ -353,7 +368,7 @@ function buildIncomingMap(dag: Record<NodeKey, NormalizedDag[NodeKey] | undefine
     if (!sourceNode) {
       return;
     }
-    getNodeChildKeys(sourceNode, mapping).forEach((targetKey) => {
+    getNodeChildKeys(sourceNode).forEach((targetKey) => {
       if (visibleKeys.has(targetKey)) {
         incomingMap[targetKey].push(sourceKey);
       }
@@ -362,7 +377,11 @@ function buildIncomingMap(dag: Record<NodeKey, NormalizedDag[NodeKey] | undefine
   return incomingMap;
 }
 
-function getBarycentricScore(nodeKey: NodeKey, incomingMap: Record<NodeKey, NodeKey[]>, nodeMap: Record<NodeKey, StageNode>): number {
+function getBarycentricScore(
+  nodeKey: NodeKey,
+  incomingMap: Record<NodeKey, NodeKey[]>,
+  nodeMap: Record<NodeKey, StageNode>,
+): number {
   const parents = incomingMap[nodeKey] || [];
   if (!parents.length) {
     return nodeMap[nodeKey].order;
@@ -415,7 +434,12 @@ function applyAbsoluteLayoutGeometry(input: {
     maxBottom = Math.max(maxBottom, position.y + node.height / 2);
   });
 
-  if (!Number.isFinite(minLeft) || !Number.isFinite(minTop) || !Number.isFinite(maxRight) || !Number.isFinite(maxBottom)) {
+  if (
+    !Number.isFinite(minLeft) ||
+    !Number.isFinite(minTop) ||
+    !Number.isFinite(maxRight) ||
+    !Number.isFinite(maxBottom)
+  ) {
     minLeft = 0;
     minTop = 0;
     maxRight = theme.minNodeWidth;
@@ -520,15 +544,22 @@ function buildConnectedKeysByNode(nodeKeys: NodeKey[], edges: StageData["edges"]
     targetKeys?.add(edge.source);
   });
 
-  return new Map(Array.from(connectedKeysByNode.entries(), ([nodeKey, connectedKeys]) => [nodeKey, connectedKeys as ReadonlySet<NodeKey>]));
+  return new Map(
+    Array.from(connectedKeysByNode.entries(), ([nodeKey, connectedKeys]) => [
+      nodeKey,
+      connectedKeys as ReadonlySet<NodeKey>,
+    ]),
+  );
 }
 
-function buildTypeColorMap(dag: NormalizedDag, mapping: FieldMapping): Map<string, StageNodeColorTokens> {
-  const typeLabels = Array.from(new Set(
-    Object.values(dag)
-      .map((node) => normalizeTypeLabel(getNodeType(node, mapping)))
-      .filter((value): value is string => Boolean(value)),
-  )).sort((left, right) => left.localeCompare(right));
+function buildTypeColorMap(dag: NormalizedDag): Map<string, StageNodeColorTokens> {
+  const typeLabels = Array.from(
+    new Set(
+      Object.values(dag.nodes)
+        .map((node) => normalizeTypeLabel(getNodeType(node)))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ).sort((left, right) => left.localeCompare(right));
 
   const colorMap = new Map<string, StageNodeColorTokens>();
   if (!typeLabels.length) {
@@ -545,11 +576,14 @@ function buildTypeColorMap(dag: NormalizedDag, mapping: FieldMapping): Map<strin
   const hueStep = 360 / typeLabels.length;
   typeLabels.forEach((typeLabel, index) => {
     const hue = (index * hueStep + TYPE_COLOR_SWATCHES[0].hue) % 360;
-    colorMap.set(typeLabel, createNodeColorTokens({
-      hue,
-      saturation: 58,
-      lightness: 45,
-    }));
+    colorMap.set(
+      typeLabel,
+      createNodeColorTokens({
+        hue,
+        saturation: 58,
+        lightness: 45,
+      }),
+    );
   });
   return colorMap;
 }

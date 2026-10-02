@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { RelativeLinkRoot } from "../adapters/relativeLinks";
-import { MarkdownValue } from "./NodeFieldEditor";
 import type { FilePreviewState } from "../hooks/useRelativeFilePreview";
+import { MarkdownValue } from "./NodeFieldEditor";
+import { CloseIcon, FullscreenIcon } from "./ui/ModalIcons";
 
 interface FilePreviewModalProps {
   preview: FilePreviewState | null;
@@ -30,7 +31,8 @@ export default function FilePreviewModal({
       return;
     }
 
-    preview.file.text()
+    preview.file
+      .text()
       .then((content) => {
         if (!cancelled) {
           setTextContent(content);
@@ -76,10 +78,16 @@ export default function FilePreviewModal({
               aria-pressed={isFullscreen ? "true" : "false"}
               onClick={() => setIsFullscreen((current) => !current)}
             >
-              <FilePreviewFullscreenIcon active={isFullscreen} />
+              <FullscreenIcon active={isFullscreen} />
             </button>
-            <button className="ghost-btn modal-icon-close-btn" type="button" title="Close preview" aria-label="Close preview" onClick={onClose}>
-              <FilePreviewCloseIcon />
+            <button
+              className="ghost-btn modal-icon-close-btn"
+              type="button"
+              title="Close preview"
+              aria-label="Close preview"
+              onClick={onClose}
+            >
+              <CloseIcon />
             </button>
           </div>
         </div>
@@ -106,49 +114,26 @@ export default function FilePreviewModal({
           onOpenRelativeLink={onOpenRelativeLink}
           onRelativeLinkError={onRelativeLinkError}
         />
-      ) : <p className="node-detail-empty">Reading file: {activePreview.path}</p>;
+      ) : (
+        <p className="node-detail-empty">Reading file: {activePreview.path}</p>
+      );
     }
     if (activePreview.previewKind === "text") {
-      return textContent ? <pre className="file-preview-text">{textContent}</pre> : <p className="node-detail-empty">Reading file: {activePreview.path}</p>;
+      return textContent ? (
+        <pre className="file-preview-text">{textContent}</pre>
+      ) : (
+        <p className="node-detail-empty">Reading file: {activePreview.path}</p>
+      );
     }
     return (
       <div className="file-preview-unsupported">
         <p>This file type is not supported for preview.</p>
         <p>Original link: {activePreview.originalUrl}</p>
         <p>Resolved target: {activePreview.path}</p>
-        <a href={activePreview.url} target="_blank" rel="noreferrer">Open in browser</a>
+        <a href={activePreview.url} target="_blank" rel="noreferrer">
+          Open in browser
+        </a>
       </div>
     );
   }
-}
-
-function FilePreviewFullscreenIcon({ active }: { active: boolean }) {
-  if (active) {
-    return (
-      <svg viewBox="0 0 24 24" className="modal-icon-close-svg" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M8 3v5H3" />
-        <path d="M21 8h-5V3" />
-        <path d="M16 21v-5h5" />
-        <path d="M3 16h5v5" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg viewBox="0 0 24 24" className="modal-icon-close-svg" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 8V3h5" />
-      <path d="M16 3h5v5" />
-      <path d="M21 16v5h-5" />
-      <path d="M8 21H3v-5" />
-    </svg>
-  );
-}
-
-function FilePreviewCloseIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="modal-icon-close-svg" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M6 6L18 18" />
-      <path d="M18 6L6 18" />
-    </svg>
-  );
 }

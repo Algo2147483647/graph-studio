@@ -15,6 +15,10 @@ DAG Studio separates graph data from graph appearance.
 
 Appearance changes do not rewrite graph JSON. They affect how the current graph is rendered and how exported SVG output looks.
 
+Settings separates **Chart type**, **Layout**, and **Appearance**. `Node-link` and `Sankey` are chart types; BFS, Sugiyama and Dagre are Node-link layouts. Sankey uses automatic flow layout. The application stores separate `chartStyles["node-link"]` and `chartStyles.sankey` profiles, including appearance and visibility options. Each type has its own in-session appearance undo/redo history. The Node-link layout choice survives chart-type switches. Older shared preferences are copied into both profiles during migration, preserving the existing look.
+
+Appearance configuration import/export and reset target the current type. The downloaded appearance JSON format remains unchanged. SVG exports use the active profile. Only relevant controls are shown: Sankey exposes flow opacity, while its bar width and spacing live under Layout.
+
 ## Appearance Document
 
 The editable appearance object is `GraphAppearance`.
@@ -83,6 +87,18 @@ Display flags control graph visibility choices that are not layout geometry or r
 | Key | Meaning |
 | --- | --- |
 | `showEdgeLabels` | Whether relation-value edge labels are rendered |
+| `nodeShadow` | Enable the two-layer node shadow (default `true`) |
+| `shadowBlur` | Diffuse shadow softness, 0–32 px (default 8) |
+| `shadowOffset` | Vertical shadow distance, 0–16 px (default 3) |
+| `shadowOpacity` | Shadow opacity, 0–40 percent (default 12) |
+| `sankeyNodeWidth` | Width of Sankey bars, 8–48 px (default 20) |
+| `sankeyLinkOpacity` | Flow-band opacity, 5–90 percent (default 32) |
+
+Use **Settings → Appearance → Node shadows** for live shadow controls, and **Settings → Layout → Sankey flows** for flow styling. All values persist in browser preferences and appearance JSON. Older appearance configurations receive defaults for new fields. Shadow controls take precedence over custom CSS filters; dense graphs omit shadows for performance. Exported SVG retains the rendered styles and flow geometry.
+
+Ordinary node cards use an opaque pure-white fill (`#ffffff`) by default, so the shadow beneath a node cannot tint its surface. Saved configurations using the old translucent default are migrated to white. Shadow softness, distance and opacity adjust only the projection; node color remains a separate setting.
+
+Sankey node heights are derived from flow, while the node-height layout control sets the available vertical room. Node spacing separates bars. Column spacing reserves additional label room; card width settings cap label width. Edge-lane spacing and equal card widths apply to ordinary graph layouts. Sankey uses `.dag-edge__flow`, `.dag-node__flow-label`, and `.dag-node__flow-value` for CSS customization.
 
 ## CSS Variables
 

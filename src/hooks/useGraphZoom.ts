@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import type { StageData } from "../layout/types";
 
-const MIN_ZOOM_FLOOR = 0.05;
+// Complete production networks can be much wider/taller than a small diagram.
+const MIN_ZOOM_FLOOR = 0.001;
 const ZOOM_STEP_FACTOR = 1.15;
 const WHEEL_ZOOM_SENSITIVITY = Math.log(ZOOM_STEP_FACTOR) / 120;
 const TRACKPAD_PIXEL_DELTA_THRESHOLD = 60;
@@ -18,61 +19,118 @@ interface UseGraphZoomInput {
   svgRef: React.RefObject<SVGSVGElement>;
   topbarRef: React.RefObject<HTMLElement>;
   stage: StageData | null;
+  viewKey?: string;
   scale: number;
   minScale: number;
   maxScale: number;
   onZoomChange: (scale: number, minScale?: number) => void;
 }
 
-export function useGraphZoom({ containerRef, svgRef, topbarRef, stage, scale, minScale, maxScale, onZoomChange }: UseGraphZoomInput) {
+export function useGraphZoom({
+  containerRef,
+  svgRef,
+  topbarRef,
+  stage,
+  viewKey,
+  scale,
+  minScale,
+  maxScale,
+  onZoomChange,
+}: UseGraphZoomInput) {
   const zoomStateRef = useRef({ scale, minScale, maxScale });
-  const wheelZoomRef = useRef<{ frame: number; deltaY: number; anchor: ZoomAnchor | null }>({ frame: 0, deltaY: 0, anchor: null });
+  const previousStageRef = useRef<{ stage: StageData | null; viewKey?: string }>({ stage: null });
+  const layoutAnchorRef = useRef<{ id: string; clientX: number; clientY: number } | null>(null);
+  const wheelZoomRef = useRef<{ frame: number; deltaY: number; anchor: ZoomAnchor | null }>({
+    frame: 0,
+    deltaY: 0,
+    anchor: null,
+  });
 
   useEffect(() => {
     zoomStateRef.current = { scale, minScale, maxScale };
   }, [maxScale, minScale, scale]);
 
-  const apply = useCallback((nextScale: number, preserveCenter: boolean, nextMinScale?: number, anchor?: ZoomAnchor) => {
-    const container = containerRef.current;
-    const svg = svgRef.current;
-    if (!container || !svg || !stage) {
-      return;
-    }
-    const currentZoom = zoomStateRef.current;
-    const resolvedMinScale = nextMinScale ?? currentZoom.minScale;
-    const clampedScale = clamp(nextScale, resolvedMinScale, currentZoom.maxScale);
-    applyGraphZoom(container, svg, topbarRef.current, stage, clampedScale, preserveCenter, anchor);
-    zoomStateRef.current = { ...currentZoom, scale: clampedScale, minScale: resolvedMinScale };
-    if (Math.abs(currentZoom.scale - clampedScale) > 0.0001 || Math.abs(currentZoom.minScale - resolvedMinScale) > 0.0001) {
-      onZoomChange(clampedScale, resolvedMinScale);
-    }
-  }, [containerRef, onZoomChange, stage, svgRef, topbarRef]);
+  const apply = useCallback(
+    (nextScale: number, preserveCenter: boolean, nextMinScale?: number, anchor?: ZoomAnchor) => {
+      const container = containerRef.current;
+      const svg = svgRef.current;
+      if (!container || !svg || !stage) {
+        return;
+      }
+      const currentZoom = zoomStateRef.current;
+      const resolvedMinScale = nextMinScale ?? currentZoom.minScale;
+      const clampedScale = clamp(nextScale, resolvedMinScale, currentZoom.maxScale);
+      applyGraphZoom(container, svg, topbarRef.current, stage, clampedScale, preserveCenter, anchor);
+      zoomStateRef.current = { ...currentZoom, scale: clampedScale, minScale: resolvedMinScale };
+      if (
+        Math.abs(currentZoom.scale - clampedScale) > 0.0001 ||
+        Math.abs(currentZoom.minScale - resolvedMinScale) > 0.0001
+      ) {
+        onZoomChange(clampedScale, resolvedMinScale);
+      }
+    },
+    [containerRef, onZoomChange, stage, svgRef, topbarRef],
+  );
 
-  const zoomBy = useCallback((factor: number, anchor?: ZoomAnchor) => {
-    if (!Number.isFinite(factor) || factor <= 0) {
-      return;
-    }
-    const currentZoom = zoomStateRef.current;
-    const currentScale = getAppliedZoomScale(svgRef.current, currentZoom.scale);
-    apply(currentScale * factor, !anchor, currentZoom.minScale, anchor);
-  }, [apply, svgRef]);
+  const zoomBy = useCallback(
+    (factor: number, anchor?: ZoomAnchor) => {
+      if (!Number.isFinite(factor) || factor <= 0) {
+        return;
+      }
+      const currentZoom = zoomStateRef.current;
+      const currentScale = getAppliedZoomScale(svgRef.current, currentZoom.scale);
+      apply(currentScale * factor, !anchor, currentZoom.minScale, anchor);
+    },
+    [apply, svgRef],
+  );
 
-  const refresh = useCallback((preserveCenter: boolean) => {
-    const container = containerRef.current;
-    if (!container || !stage) {
-      return;
-    }
-    const currentZoom = zoomStateRef.current;
-    const nextMinScale = getFitZoomScale(container, topbarRef.current, stage);
-    const nextScale = Math.abs(currentZoom.scale - currentZoom.minScale) < 0.001
-      ? nextMinScale
-      : clamp(currentZoom.scale, nextMinScale, currentZoom.maxScale);
-    apply(nextScale, preserveCenter, nextMinScale);
-  }, [apply, containerRef, stage, topbarRef]);
+  const refresh = useCallback(
+    (preserveCenter: boolean) => {
+      const container = containerRef.current;
+      if (!container || !stage) {
+        return;
+      }
+      const currentZoom = zoomStateRef.current;
+      const fitScale = getFitZoomScale(container, topbarRef.current, stage);
+      const keepCompoundScale = preserveCenter && stage.layoutMode === "compound";
+      const nextMinScale = keepCompoundScale ? Math.min(fitScale, currentZoom.scale) : fitScale;
+      const nextScale =
+        !keepCompoundScale && Math.abs(currentZoom.scale - currentZoom.minScale) < 0.001
+          ? nextMinScale
+          : clamp(currentZoom.scale, nextMinScale, currentZoom.maxScale);
+      apply(nextScale, preserveCenter, nextMinScale);
+    },
+    [apply, containerRef, stage, topbarRef],
+  );
 
   useLayoutEffect(() => {
-    refresh(false);
+    const previous = previousStageRef.current;
+    const preserve =
+      stage?.layoutMode === "compound" && previous.stage?.layoutMode === "compound" && previous.viewKey === viewKey;
+    refresh(preserve);
+    const anchor = layoutAnchorRef.current;
+    if (preserve && anchor && stage && svgRef.current && containerRef.current) {
+      const point = getItemOrigin(stage, anchor.id);
+      if (point) {
+        const rect = svgRef.current.getBoundingClientRect();
+        containerRef.current.scrollLeft += rect.left + (point.x * rect.width) / stage.stageWidth - anchor.clientX;
+        containerRef.current.scrollTop += rect.top + (point.y * rect.height) / stage.stageHeight - anchor.clientY;
+      }
+    }
+    layoutAnchorRef.current = null;
+    previousStageRef.current = { stage, viewKey };
   }, [stage]);
+
+  useEffect(() => {
+    const overlays = containerRef.current?.closest(".workspace")?.querySelector(".workspace-overlays");
+    if (!overlays || typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(() => {
+      const current = zoomStateRef.current;
+      refresh(Math.abs(current.scale - current.minScale) >= 0.001);
+    });
+    observer.observe(overlays);
+    return () => observer.disconnect();
+  }, [containerRef, refresh]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -111,19 +169,44 @@ export function useGraphZoom({ containerRef, svgRef, topbarRef, stage, scale, mi
     };
   }, [containerRef, stage, zoomBy]);
 
-  return useMemo(() => ({
-    zoomIn: () => zoomBy(ZOOM_STEP_FACTOR),
-    zoomOut: () => zoomBy(1 / ZOOM_STEP_FACTOR),
-    zoomFit: () => apply(minScale, false),
-    setZoomPercent: (percent: number) => {
-      if (!Number.isFinite(percent) || percent <= 0) {
-        return false;
-      }
-      apply(percent / 100, true);
-      return true;
-    },
-    refresh,
-  }), [apply, minScale, refresh, zoomBy]);
+  return useMemo(
+    () => ({
+      zoomIn: () => zoomBy(ZOOM_STEP_FACTOR),
+      zoomOut: () => zoomBy(1 / ZOOM_STEP_FACTOR),
+      zoomFit: () => {
+        if (containerRef.current && stage) {
+          const fitScale = getFitZoomScale(containerRef.current, topbarRef.current, stage);
+          apply(fitScale, false, fitScale);
+        }
+      },
+      captureLayoutAnchor: (id: string) => {
+        const point = stage && getItemOrigin(stage, id);
+        const rect = svgRef.current?.getBoundingClientRect();
+        if (stage && point && rect)
+          layoutAnchorRef.current = {
+            id,
+            clientX: rect.left + (point.x * rect.width) / stage.stageWidth,
+            clientY: rect.top + (point.y * rect.height) / stage.stageHeight,
+          };
+      },
+      setZoomPercent: (percent: number) => {
+        if (!Number.isFinite(percent) || percent <= 0) {
+          return false;
+        }
+        apply(percent / 100, true);
+        return true;
+      },
+      refresh,
+    }),
+    [apply, minScale, refresh, zoomBy, stage, containerRef, svgRef, topbarRef],
+  );
+}
+
+function getItemOrigin(stage: StageData, id: string) {
+  const group = stage.groups?.find((item) => item.id === id);
+  if (group) return { x: group.x, y: group.y };
+  const node = stage.nodeMap[id];
+  return node ? { x: node.x - node.width / 2, y: node.y - node.height / 2 } : null;
 }
 
 function getFitZoomScale(container: HTMLElement, topbar: HTMLElement | null, stage: StageData): number {
@@ -134,7 +217,15 @@ function getFitZoomScale(container: HTMLElement, topbar: HTMLElement | null, sta
   return Math.max(fitScale, MIN_ZOOM_FLOOR);
 }
 
-function applyGraphZoom(container: HTMLElement, svg: SVGSVGElement, topbar: HTMLElement | null, stage: StageData, scale: number, preserveCenter: boolean, anchor?: ZoomAnchor): void {
+function applyGraphZoom(
+  container: HTMLElement,
+  svg: SVGSVGElement,
+  topbar: HTMLElement | null,
+  stage: StageData,
+  scale: number,
+  preserveCenter: boolean,
+  anchor?: ZoomAnchor,
+): void {
   const previousScale = Number(svg.dataset.zoomScale || 1);
   const previousMarginLeft = Number(svg.dataset.marginLeft || 0);
   const previousMarginTop = Number(svg.dataset.marginTop || 0);
@@ -142,12 +233,22 @@ function applyGraphZoom(container: HTMLElement, svg: SVGSVGElement, topbar: HTML
   const containerRect = container.getBoundingClientRect();
   const scaledWidth = stage.stageWidth * scale;
   const scaledHeight = stage.stageHeight * scale;
-  const marginLeft = Math.max((viewportMetrics.availableWidth - scaledWidth) / 2, 0);
+  const marginLeft = viewportMetrics.safeLeft + Math.max((viewportMetrics.availableWidth - scaledWidth) / 2, 0);
   const marginTop = viewportMetrics.safeTop + Math.max((viewportMetrics.availableHeight - scaledHeight) / 2, 0);
-  const anchorOffsetX = anchor ? anchor.clientX - containerRect.left : container.clientWidth / 2;
-  const anchorOffsetY = anchor ? anchor.clientY - containerRect.top : container.clientHeight / 2;
-  const zoomOriginX = preserveCenter || anchor ? (container.scrollLeft + anchorOffsetX - previousMarginLeft) / previousScale : stage.stageWidth / 2;
-  const zoomOriginY = preserveCenter || anchor ? (container.scrollTop + anchorOffsetY - previousMarginTop) / previousScale : stage.stageHeight / 2;
+  const anchorOffsetX = anchor
+    ? anchor.clientX - containerRect.left
+    : viewportMetrics.safeLeft + viewportMetrics.availableWidth / 2;
+  const anchorOffsetY = anchor
+    ? anchor.clientY - containerRect.top
+    : viewportMetrics.safeTop + viewportMetrics.availableHeight / 2;
+  const zoomOriginX =
+    preserveCenter || anchor
+      ? (container.scrollLeft + anchorOffsetX - previousMarginLeft) / previousScale
+      : stage.stageWidth / 2;
+  const zoomOriginY =
+    preserveCenter || anchor
+      ? (container.scrollTop + anchorOffsetY - previousMarginTop) / previousScale
+      : stage.stageHeight / 2;
 
   svg.style.width = `${scaledWidth}px`;
   svg.style.height = `${scaledHeight}px`;
@@ -186,10 +287,18 @@ function getViewportMetrics(container: HTMLElement, topbar: HTMLElement | null) 
   const topbarRect = topbar ? topbar.getBoundingClientRect() : null;
   const safeTop = topbarRect ? Math.max(topbarRect.bottom - containerRect.top + 12, 0) : 0;
   const horizontalInset = 24;
+  const overlays = container.closest(".workspace")?.querySelector(".workspace-overlays");
+  const overlayRect = overlays?.getBoundingClientRect();
+  // Fit into the visible area; the scrollable canvas itself still fills the page.
+  const safeLeft =
+    overlayRect && overlayRect.width > 0 && overlayRect.width < container.clientWidth * 0.75
+      ? Math.max(horizontalInset, overlayRect.right - containerRect.left + 16)
+      : horizontalInset;
   const bottomInset = 16;
   return {
     safeTop,
-    availableWidth: container.clientWidth - horizontalInset * 2,
+    safeLeft,
+    availableWidth: container.clientWidth - safeLeft - horizontalInset,
     availableHeight: container.clientHeight - safeTop - bottomInset,
   };
 }

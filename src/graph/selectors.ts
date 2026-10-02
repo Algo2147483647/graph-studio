@@ -1,12 +1,11 @@
 import { getNodeChildKeys, getNodeParentKeys } from "./accessors";
-import { getDefaultFieldMapping, type FieldMapping } from "./fieldMapping";
 import type { GraphSelection, NodeKey, NormalizedDag } from "./types";
 
-export function findRootsFromDag(dag: NormalizedDag, mapping: FieldMapping = getDefaultFieldMapping()): NodeKey[] {
-  const nodeKeys = Object.keys(dag);
+export function findRootsFromDag(dag: NormalizedDag): NodeKey[] {
+  const nodeKeys = Object.keys(dag.nodes);
   const nodesWithIncoming = new Set<NodeKey>();
   nodeKeys.forEach((nodeKey) => {
-    getNodeParentKeys(dag[nodeKey], mapping).forEach((parentKey) => {
+    getNodeParentKeys(dag.nodes[nodeKey]).forEach((parentKey) => {
       if (parentKey && parentKey !== nodeKey) {
         nodesWithIncoming.add(nodeKey);
       }
@@ -14,7 +13,7 @@ export function findRootsFromDag(dag: NormalizedDag, mapping: FieldMapping = get
   });
 
   nodeKeys.forEach((nodeKey) => {
-    getNodeChildKeys(dag[nodeKey], mapping).forEach((childKey) => {
+    getNodeChildKeys(dag.nodes[nodeKey]).forEach((childKey) => {
       if (childKey && childKey !== nodeKey) {
         nodesWithIncoming.add(childKey);
       }
@@ -25,8 +24,10 @@ export function findRootsFromDag(dag: NormalizedDag, mapping: FieldMapping = get
   return inferredRoots.length ? inferredRoots : nodeKeys;
 }
 
-export function getInitialSelection(dag: NormalizedDag, mapping: FieldMapping = getDefaultFieldMapping()): GraphSelection {
-  const roots = findRootsFromDag(dag, mapping);
+export function getInitialSelection(dag: NormalizedDag): GraphSelection {
+  // A cyclic component can have no root even when another component has one.
+  if (dag.diagram === "sankey") return { type: "full" };
+  const roots = findRootsFromDag(dag);
   if (roots.length === 1) {
     return { type: "node", key: roots[0] };
   }
@@ -41,7 +42,7 @@ export function areSelectionsEqual(left: GraphSelection | null, right: GraphSele
   return selectionToKey(left) === selectionToKey(right);
 }
 
-export function selectionToKey(selection: GraphSelection | null): string {
+function selectionToKey(selection: GraphSelection | null): string {
   if (!selection) {
     return "";
   }
@@ -59,15 +60,18 @@ export function isSelectionValid(selection: GraphSelection | null, dag: Normaliz
     return false;
   }
   if (selection.type === "full") {
-    return Object.keys(dag).length > 0;
+    return Object.keys(dag.nodes).length > 0;
   }
   if (selection.type === "node") {
-    return Boolean(dag[selection.key]);
+    return Boolean(dag.nodes[selection.key]);
   }
-  return selection.keys.some((key) => Boolean(dag[key]));
+  return selection.keys.some((key) => Boolean(dag.nodes[key]));
 }
 
-export function remapSelectionKeys(selection: GraphSelection | null, keyMapper: (key: NodeKey) => NodeKey | null): GraphSelection | null {
+export function remapSelectionKeys(
+  selection: GraphSelection | null,
+  keyMapper: (key: NodeKey) => NodeKey | null,
+): GraphSelection | null {
   if (!selection) {
     return null;
   }
@@ -86,12 +90,12 @@ export function removeSelectionKeys(selection: GraphSelection | null, deleteSet:
   return remapSelectionKeys(selection, (key) => (deleteSet.has(key) ? null : key));
 }
 
-export function getParentLevelSelection(dag: NormalizedDag, topLevelKeys: NodeKey[], mapping: FieldMapping = getDefaultFieldMapping()): GraphSelection | null {
+export function getParentLevelSelection(dag: NormalizedDag, topLevelKeys: NodeKey[]): GraphSelection | null {
   if (!topLevelKeys.length) {
     return null;
   }
 
-  const parentKeys = Array.from(new Set(topLevelKeys.flatMap((nodeKey) => getNodeParentKeys(dag[nodeKey], mapping))));
+  const parentKeys = Array.from(new Set(topLevelKeys.flatMap((nodeKey) => getNodeParentKeys(dag.nodes[nodeKey]))));
   if (!parentKeys.length) {
     return null;
   }

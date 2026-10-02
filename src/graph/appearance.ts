@@ -8,9 +8,33 @@ export interface GraphAppearance {
   css: string;
 }
 
-export interface GraphDisplayAppearance {
+interface GraphDisplayAppearance {
   showEdgeLabels: boolean;
+  nodeShadow: boolean;
+  shadowBlur: number;
+  shadowOffset: number;
+  shadowOpacity: number;
+  sankeyNodeWidth: number;
+  sankeyLinkOpacity: number;
 }
+
+// Keep core rendering rules outside saved custom CSS so older preferences gain new features.
+export const GRAPH_EFFECTS_CSS = `
+.dag-graph .dag-node__shape { filter: var(--dag-node-shadow) !important; }
+.dag-graph .dag-node:hover .dag-node__shape,
+.dag-graph .dag-node[data-hovered="true"] .dag-node__shape,
+.dag-graph .dag-node[data-focused="true"] .dag-node__shape,
+.dag-graph .dag-node[data-selected="true"] .dag-node__shape { filter: var(--dag-node-shadow-active) !important; }
+.dag-graph[data-density="dense"] .dag-node .dag-node__shape { filter: none !important; }
+.dag-edge__flow { fill: none; stroke-linecap: butt; opacity: var(--dag-sankey-opacity); transition: opacity .18s ease; pointer-events: stroke; }
+.dag-edge__flow:hover, .dag-edge[data-active="true"] .dag-edge__flow { opacity: .8; }
+.dag-graph[data-has-interactive-node="true"] .dag-edge__flow { opacity: .12; }
+.dag-graph[data-has-interactive-node="true"] .dag-edge[data-active="true"] .dag-edge__flow { opacity: .8; }
+.dag-node__flow-label { fill: var(--dag-text-strong); font-family: var(--dag-title-font-family); font-size: var(--dag-title-font-size); font-style: var(--dag-title-font-style); font-weight: var(--dag-title-font-weight); paint-order: stroke; stroke: white; stroke-width: 4px; stroke-linejoin: round; }
+.dag-node__flow-value { fill: var(--dag-text-soft); font-size: 11px; font-style: normal; font-weight: 500; }
+.dag-node[data-flow="true"]:focus-visible .dag-node__shape { stroke: var(--dag-edge-active); stroke-width: 3; }
+@media (prefers-reduced-motion: reduce) { .dag-graph * { transition: none !important; } }
+`.trim();
 
 export interface GraphLayoutAppearance {
   stagePaddingX: number;
@@ -25,7 +49,7 @@ export interface GraphLayoutAppearance {
   stageMinHeight: number;
 }
 
-export const DEFAULT_GRAPH_CSS = `
+const DEFAULT_GRAPH_CSS = `
 .dag-graph,
 .dag-backdrop {
   fill: none;
@@ -114,7 +138,7 @@ export const DEFAULT_GRAPH_CSS = `
 .dag-node__pin {
   fill: var(--dag-node-pin-fill, rgba(40, 95, 223, 0.14));
   stroke: var(--dag-node-pin-stroke, rgba(40, 95, 223, 0.24));
-  stroke-width: 1;
+  stroke-width: 0.75;
 }
 
 .dag-node__pin-core {
@@ -240,16 +264,22 @@ export const DEFAULT_GRAPH_APPEARANCE: GraphAppearance = {
   },
   display: {
     showEdgeLabels: true,
+    nodeShadow: true,
+    shadowBlur: 8,
+    shadowOffset: 3,
+    shadowOpacity: 12,
+    sankeyNodeWidth: 20,
+    sankeyLinkOpacity: 32,
   },
   cssVars: {
     "--dag-text-strong": "#162033",
     "--dag-text-soft": "#8792a2",
     "--dag-edge": "rgba(76, 96, 132, 0.24)",
     "--dag-edge-active": "rgba(41, 92, 207, 0.72)",
-    "--dag-node-fill": "rgba(252, 253, 255, 0.88)",
+    "--dag-node-fill": "#ffffff",
     "--dag-node-border": "rgba(91, 109, 142, 0.17)",
     "--dag-node-border-strong": "rgba(50, 79, 132, 0.35)",
-    "--dag-title-font-family": "\"Georgia\", serif",
+    "--dag-title-font-family": '"Georgia", serif',
     "--dag-title-font-size": "15px",
     "--dag-title-font-style": "italic",
     "--dag-title-font-weight": "400",
@@ -264,12 +294,14 @@ export function sanitizeGraphAppearance(input: unknown): GraphAppearance {
 
   const record = input as Record<string, unknown>;
   const defaultLayout = DEFAULT_GRAPH_APPEARANCE.layout;
-  const layoutInput = record.layout && typeof record.layout === "object" && !Array.isArray(record.layout)
-    ? record.layout as Record<string, unknown>
-    : {};
-  const displayInput = record.display && typeof record.display === "object" && !Array.isArray(record.display)
-    ? record.display as Record<string, unknown>
-    : {};
+  const layoutInput =
+    record.layout && typeof record.layout === "object" && !Array.isArray(record.layout)
+      ? (record.layout as Record<string, unknown>)
+      : {};
+  const displayInput =
+    record.display && typeof record.display === "object" && !Array.isArray(record.display)
+      ? (record.display as Record<string, unknown>)
+      : {};
   const minNodeWidth = clampNumeric(layoutInput.minNodeWidth, defaultLayout.minNodeWidth, 140, 260);
   const maxNodeWidth = clampNumeric(layoutInput.maxNodeWidth, defaultLayout.maxNodeWidth, minNodeWidth, 480);
 
@@ -288,7 +320,16 @@ export function sanitizeGraphAppearance(input: unknown): GraphAppearance {
       stageMinHeight: clampNumeric(layoutInput.stageMinHeight, defaultLayout.stageMinHeight, 240, 3000),
     },
     display: {
-      showEdgeLabels: displayInput.showEdgeLabels === undefined ? DEFAULT_GRAPH_APPEARANCE.display.showEdgeLabels : displayInput.showEdgeLabels === true,
+      showEdgeLabels:
+        displayInput.showEdgeLabels === undefined
+          ? DEFAULT_GRAPH_APPEARANCE.display.showEdgeLabels
+          : displayInput.showEdgeLabels === true,
+      nodeShadow: typeof displayInput.nodeShadow === "boolean" ? displayInput.nodeShadow : true,
+      shadowBlur: clampNumeric(displayInput.shadowBlur, 8, 0, 32),
+      shadowOffset: clampNumeric(displayInput.shadowOffset, 3, 0, 16),
+      shadowOpacity: clampNumeric(displayInput.shadowOpacity, 12, 0, 40),
+      sankeyNodeWidth: clampNumeric(displayInput.sankeyNodeWidth, 20, 8, 48),
+      sankeyLinkOpacity: clampNumeric(displayInput.sankeyLinkOpacity, 32, 5, 90),
     },
     cssVars: sanitizeCssVars(record.cssVars),
     css: sanitizeCss(record.css),
@@ -296,7 +337,17 @@ export function sanitizeGraphAppearance(input: unknown): GraphAppearance {
 }
 
 export function appearanceToStageStyle(appearance: GraphAppearance): CSSProperties {
-  return { ...appearance.cssVars } as CSSProperties;
+  const { nodeShadow, shadowBlur, shadowOffset, shadowOpacity, sankeyLinkOpacity } = appearance.display;
+  const shadow = (active: boolean) =>
+    !nodeShadow
+      ? "none"
+      : `drop-shadow(0 1px 1px rgba(24, 39, 64, ${shadowOpacity / 200})) drop-shadow(0 ${shadowOffset * (active ? 1.5 : 1)}px ${shadowBlur * (active ? 1.25 : 1)}px rgba(24, 39, 64, ${shadowOpacity / 100}))`;
+  return {
+    ...appearance.cssVars,
+    "--dag-node-shadow": shadow(false),
+    "--dag-node-shadow-active": shadow(true),
+    "--dag-sankey-opacity": sankeyLinkOpacity / 100,
+  } as CSSProperties;
 }
 
 function sanitizeCss(css: unknown): string {
@@ -317,7 +368,12 @@ function sanitizeCssVars(input: unknown): Record<string, string> {
     if (!key.startsWith("--dag-") || typeof value !== "string") {
       return;
     }
-    vars[key] = value.slice(0, 500);
+    // The old translucent default let the drop shadow show through the card.
+    // Migrate that default in saved preferences without changing custom colors.
+    const isLegacyFill =
+      ["--dag-node-fill", "--dag-node-root-fill", "--dag-node-active-fill"].includes(key) &&
+      value.replace(/\s/g, "").toLowerCase() === "rgba(252,253,255,0.88)";
+    vars[key] = isLegacyFill ? "#ffffff" : value.slice(0, 500);
   });
   return vars;
 }

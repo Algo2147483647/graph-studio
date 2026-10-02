@@ -5,3 +5,8 @@
 @import "./graph.css";
 @import "./console.css";
 @import "./modals.css";
+
+@import "./chrome.css";
+@import "./workspace.css";
+@import "./settings.css";
+@import "./compound.css";

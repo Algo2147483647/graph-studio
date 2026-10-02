@@ -1,19 +1,59 @@
 import type { GraphLayoutAppearance } from "../../graph/appearance";
 
-export type SettingsChapter = "general" | "appearance" | "ai";
+export type SettingsChapter = "general" | "chart" | "appearance" | "layout" | "ai";
 
-export const DIRECTORY_INPUT_PROPS = {
-  directory: "",
-  webkitdirectory: "",
-} as Record<string, string>;
-
-export const SETTINGS_CHAPTERS: Array<{ key: SettingsChapter; label: string }> = [
-  { key: "general", label: "General" },
-  { key: "appearance", label: "Appearance" },
-  { key: "ai", label: "AI" },
+export const SETTINGS_CHAPTERS: Array<{
+  key: SettingsChapter;
+  label: string;
+  description: string;
+  icon: string;
+  keywords: string;
+}> = [
+  {
+    key: "general",
+    label: "Workspace",
+    description: "Files, folders & recent locations",
+    icon: "folder",
+    keywords:
+      "open create graph new refresh close current session manifest detection default console svg export import workspace",
+  },
+  {
+    key: "chart",
+    label: "Chart type",
+    description: "Node-link, nested subgraphs or Sankey",
+    icon: "graph",
+    keywords:
+      "diagram visualization display node link network sankey flow numeric value nested compound subgraph hierarchy group",
+  },
+  {
+    key: "layout",
+    label: "Layout",
+    description: "Arrangement & spacing",
+    icon: "layout",
+    keywords:
+      "node link sankey flow width spacing engine algorithm level bfs sugiyama dagre layered layer node line height width tuning",
+  },
+  {
+    key: "appearance",
+    label: "Appearance",
+    description: "Style for each chart type",
+    icon: "palette",
+    keywords:
+      "node link sankey flow bands colors typography shadow shadows elevation blur offset opacity depth preset theme simple compact default slate blueprint contrast presentation tokens fill border root edge active title soft text font size bold italic view details descriptions borders width labels edges custom css advanced stylesheet configuration import export reset",
+  },
+  {
+    key: "ai",
+    label: "AI assistant",
+    description: "Providers & execution",
+    icon: "ai",
+    keywords: "provider model base url api key token temperature temp connection test ask review automatic read edit",
+  },
 ];
 
-export type LayoutControlKey = keyof Pick<GraphLayoutAppearance, "columnGap" | "rowGap" | "edgeLaneGap" | "nodeHeight" | "maxNodeWidth">;
+type LayoutControlKey = keyof Pick<
+  GraphLayoutAppearance,
+  "columnGap" | "rowGap" | "edgeLaneGap" | "nodeHeight" | "maxNodeWidth"
+>;
 
 export interface LayoutControlDefinition {
   key: LayoutControlKey;

@@ -1,24 +1,22 @@
-import type { GraphLayoutMode, GraphMode } from "../graph/types";
-import { DEFAULT_GRAPH_APPEARANCE, sanitizeGraphAppearance, type GraphAppearance } from "../graph/appearance";
-import { getDefaultFieldMapping, sanitizeFieldMapping, type FieldMapping } from "../graph/fieldMapping";
-import type { AiExecutionMode, AiProvider, AiSettings } from "../ai/types";
+import { normalizeAiExecutionMode } from "../ai/executionPolicy";
+import type { AiProvider, AiSettings } from "../ai/types";
+import type { GraphChartType, GraphLayoutMode, GraphMode } from "../graph/types";
+import { type ChartStyles, createChartStyles, sanitizeChartStyle } from "./chartStyles";
 
-const GRAPH_PAGE_PREFERENCES_KEY = "dag-studio:page-preferences";
+const GRAPH_PAGE_PREFERENCES_KEY = "graph-studio:page-preferences";
 
 export interface GraphPagePreferences {
   mode: GraphMode;
+  chartType: GraphChartType;
   layoutMode: GraphLayoutMode;
-  appearance: GraphAppearance;
-  showNodeDetail: boolean;
-  hideNodeBorders: boolean;
-  alignNodeWidthsToMax: boolean;
+  chartStyles: ChartStyles;
   consoleSidebarOpen: boolean;
   consoleSidebarWidth: number;
-  fieldMapping: FieldMapping;
+
   aiSettings: AiSettings;
 }
 
-export const DEFAULT_AI_SETTINGS: AiSettings = {
+const DEFAULT_AI_SETTINGS: AiSettings = {
   provider: "openai-compatible",
   baseUrl: "https://api.openai.com/v1",
   apiKey: "",
@@ -36,15 +34,12 @@ interface StorageLike {
 export function getInitialGraphPagePreferences(): GraphPagePreferences {
   return {
     mode: "edit",
+    chartType: "node-link",
     layoutMode: "sugiyama",
-    appearance: DEFAULT_GRAPH_APPEARANCE,
-    showNodeDetail: true,
-    hideNodeBorders: false,
-    alignNodeWidthsToMax: false,
+    chartStyles: createChartStyles(),
     consoleSidebarOpen: false,
     consoleSidebarWidth: 360,
-    fieldMapping: getDefaultFieldMapping(),
-    aiSettings: DEFAULT_AI_SETTINGS,
+    aiSettings: { ...DEFAULT_AI_SETTINGS },
   };
 }
 
@@ -84,6 +79,8 @@ export function parseGraphPagePreferences(raw: string | null): Partial<GraphPage
 
   let parsed: {
     mode?: unknown;
+    chartType?: unknown;
+    chartStyles?: unknown;
     layoutMode?: unknown;
     consoleSidebarOpen?: unknown;
     consoleSidebarWidth?: unknown;
@@ -91,7 +88,7 @@ export function parseGraphPagePreferences(raw: string | null): Partial<GraphPage
     showNodeDetail?: unknown;
     hideNodeBorders?: unknown;
     alignNodeWidthsToMax?: unknown;
-    fieldMapping?: unknown;
+
     aiSettings?: unknown;
   } | null;
   try {
@@ -110,17 +107,30 @@ export function parseGraphPagePreferences(raw: string | null): Partial<GraphPage
   if (parsed.layoutMode === "level" || parsed.layoutMode === "sugiyama" || parsed.layoutMode === "dagre") {
     next.layoutMode = parsed.layoutMode;
   }
-  if (parsed.appearance && typeof parsed.appearance === "object" && !Array.isArray(parsed.appearance)) {
-    next.appearance = sanitizeGraphAppearance(parsed.appearance);
+  if (parsed.chartType === "node-link" || parsed.chartType === "sankey" || parsed.chartType === "compound") {
+    next.chartType = parsed.chartType;
+  } else if (parsed.layoutMode === "sankey") {
+    next.chartType = "sankey";
   }
-  if (typeof parsed.showNodeDetail === "boolean") {
-    next.showNodeDetail = parsed.showNodeDetail;
-  }
-  if (typeof parsed.hideNodeBorders === "boolean") {
-    next.hideNodeBorders = parsed.hideNodeBorders;
-  }
-  if (typeof parsed.alignNodeWidthsToMax === "boolean") {
-    next.alignNodeWidthsToMax = parsed.alignNodeWidthsToMax;
+  // Preserve the formerly shared style for both types on first migration.
+  if (parsed.chartStyles && typeof parsed.chartStyles === "object" && !Array.isArray(parsed.chartStyles)) {
+    const styles = parsed.chartStyles as Record<string, unknown>;
+    next.chartStyles = {
+      "node-link": sanitizeChartStyle(styles["node-link"]),
+      sankey: sanitizeChartStyle(styles.sankey),
+      compound: sanitizeChartStyle(styles.compound),
+    };
+  } else if (
+    parsed.appearance ||
+    [parsed.showNodeDetail, parsed.hideNodeBorders, parsed.alignNodeWidthsToMax].some(
+      (value) => typeof value === "boolean",
+    )
+  ) {
+    next.chartStyles = {
+      "node-link": sanitizeChartStyle(parsed),
+      sankey: sanitizeChartStyle(parsed),
+      compound: sanitizeChartStyle(null),
+    };
   }
   if (typeof parsed.consoleSidebarOpen === "boolean") {
     next.consoleSidebarOpen = parsed.consoleSidebarOpen;
@@ -128,9 +138,7 @@ export function parseGraphPagePreferences(raw: string | null): Partial<GraphPage
   if (typeof parsed.consoleSidebarWidth === "number" && Number.isFinite(parsed.consoleSidebarWidth)) {
     next.consoleSidebarWidth = clampConsoleSidebarWidth(parsed.consoleSidebarWidth);
   }
-  if (parsed.fieldMapping && typeof parsed.fieldMapping === "object" && !Array.isArray(parsed.fieldMapping)) {
-    next.fieldMapping = sanitizeFieldMapping(parsed.fieldMapping);
-  }
+
   if (parsed.aiSettings && typeof parsed.aiSettings === "object" && !Array.isArray(parsed.aiSettings)) {
     next.aiSettings = sanitizeAiSettings(parsed.aiSettings);
   }
@@ -165,20 +173,18 @@ function sanitizeAiSettings(input: object): AiSettings {
     model: sanitizeString(record.model, DEFAULT_AI_SETTINGS.model),
     temperature: clampFloatPreference(record.temperature, DEFAULT_AI_SETTINGS.temperature, 0, 2),
     maxTokens: clampNumericPreference(record.maxTokens, DEFAULT_AI_SETTINGS.maxTokens, 128, 8000),
-    executionMode: sanitizeAiExecutionMode(record.executionMode),
+    executionMode: normalizeAiExecutionMode(record.executionMode),
   };
 }
 
 function sanitizeAiProvider(value: unknown): AiProvider {
-  return value === "openai-compatible" || value === "deepseek" || value === "anthropic" || value === "gemini" || value === "ollama"
+  return value === "openai-compatible" ||
+    value === "deepseek" ||
+    value === "anthropic" ||
+    value === "gemini" ||
+    value === "ollama"
     ? value
     : DEFAULT_AI_SETTINGS.provider;
-}
-
-function sanitizeAiExecutionMode(value: unknown): AiExecutionMode {
-  return value === "ask" || value === "review" || value === "auto-readonly" || value === "auto-edit"
-    ? value
-    : DEFAULT_AI_SETTINGS.executionMode;
 }
 
 function sanitizeString(value: unknown, fallback: string): string {

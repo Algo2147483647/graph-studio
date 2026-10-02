@@ -1,19 +1,17 @@
 import { getNodeDefine, getNodeTitle } from "../graph/accessors";
-import type { FieldMapping } from "../graph/fieldMapping";
-import type { DagNode, NodeKey } from "../graph/types";
 import { sanitizeNodeLabel } from "../graph/selectors";
+import type { DagNode, NodeKey } from "../graph/types";
 
 export function getNodeVisual(
   nodeKey: NodeKey,
   node: DagNode & { synthetic?: boolean },
-  mapping: FieldMapping,
   minNodeWidth: number,
   maxNodeWidth: number,
   showDetail: boolean,
   alignToMaxWidth = false,
 ): { title: string; detail: string; width: number } {
   if (node.synthetic) {
-    const syntheticTitle = getNodeTitle(node, mapping) || "Selected roots";
+    const syntheticTitle = getNodeTitle(node) || "Selected roots";
     return {
       title: syntheticTitle,
       detail: showDetail ? "Combined entry point for every detected root branch." : "",
@@ -21,19 +19,19 @@ export function getNodeVisual(
     };
   }
 
-  const title = sanitizeNodeLabel(getNodeTitle(node, mapping) || nodeKey);
-  const detail = showDetail ? getNodeDetail(node, title, mapping) : "";
+  const title = sanitizeNodeLabel(getNodeTitle(node) || nodeKey);
+  const detail = showDetail ? getNodeDetail(node, title) : "";
   const estimatedContentWidth = Math.max(estimateTextWidth(title, 15), estimateTextWidth(detail, 10) * 0.76);
   const width = alignToMaxWidth ? maxNodeWidth : clamp(132 + estimatedContentWidth, minNodeWidth, maxNodeWidth);
   return { title: title || nodeKey, detail, width };
 }
 
-export function getNodeDetail(node: DagNode, fallbackTitle: string, mapping: FieldMapping): string {
-  const defineText = stripRichText(getNodeDefine(node, mapping));
+function getNodeDetail(node: DagNode, fallbackTitle: string): string {
+  const defineText = stripRichText(getNodeDefine(node));
   return firstMeaningfulSegment(defineText) || fallbackTitle;
 }
 
-export function stripRichText(text: unknown): string {
+function stripRichText(text: unknown): string {
   return String(text || "")
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/\$\$[\s\S]*?\$\$/g, " ")
@@ -47,7 +45,7 @@ export function stripRichText(text: unknown): string {
     .trim();
 }
 
-export function firstMeaningfulSegment(text: string): string {
+function firstMeaningfulSegment(text: string): string {
   if (!text) {
     return "";
   }
@@ -58,7 +56,7 @@ export function firstMeaningfulSegment(text: string): string {
   return segments.find((segment) => /[A-Za-z\u4e00-\u9fff]/.test(segment)) || "";
 }
 
-export function truncate(text: string, maxLength: number): string {
+function truncate(text: string, maxLength: number): string {
   if (text.length <= maxLength) {
     return text;
   }
@@ -72,7 +70,9 @@ export function truncateTitleToWidth(text: string, nodeWidth: number): string {
 }
 
 export function wrapDetailText(text: string, maxLineWidth: number, maxLines: number): string[] {
-  const normalized = String(text || "").replace(/\s+/g, " ").trim();
+  const normalized = String(text || "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!normalized) {
     return [""];
   }
@@ -99,8 +99,11 @@ export function wrapDetailText(text: string, maxLineWidth: number, maxLines: num
   return lines.slice(0, maxLines);
 }
 
-export function estimateTextWidth(text: string, fontSize: number): number {
-  return Array.from(String(text || "")).reduce((width, character) => width + getCharacterEmWidth(character) * fontSize, 0);
+function estimateTextWidth(text: string, fontSize: number): number {
+  return Array.from(String(text || "")).reduce(
+    (width, character) => width + getCharacterEmWidth(character) * fontSize,
+    0,
+  );
 }
 
 function findWrapIndex(text: string, maxLineWidth: number): number {
@@ -151,10 +154,12 @@ function fitTextWithEllipsis(text: string, maxLineWidth: number): string {
 }
 
 function isBreakOpportunity(character: string): boolean {
-  return /\s/.test(character)
-    || /[\u3000-\u303f\uff00-\uffef]/.test(character)
-    || /[，。！？、；：,.!?:;)\]}]/.test(character)
-    || isCjkCharacter(character);
+  return (
+    /\s/.test(character) ||
+    /[\u3000-\u303f\uff00-\uffef]/.test(character) ||
+    /[，。！？、；：,.!?:;)\]}]/.test(character) ||
+    isCjkCharacter(character)
+  );
 }
 
 function getCharacterEmWidth(character: string): number {

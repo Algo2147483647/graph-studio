@@ -1,16 +1,26 @@
 import { useEffect, useState } from "react";
-import type { DagNode, NodeKey } from "../graph/types";
-import { getMappedFieldName, type FieldMapping } from "../graph/fieldMapping";
-import { getRelationKeys } from "../graph/relations";
 import type { RelativeLinkRoot } from "../adapters/relativeLinks";
-import NodeFieldEditor, { LinkValue, MarkdownValue, buildEditableFields, formatEditorValue, hasDisplayLink, parseNodeFieldValue, supportsDisplayMode, type EditableField, type FieldDisplayMode } from "./NodeFieldEditor";
+import { getRelationKeys } from "../graph/relations";
+import type { DagNode, NodeKey } from "../graph/types";
+import NodeFieldEditor, {
+  type EditableField,
+  type FieldDisplayMode,
+  LinkValue,
+  MarkdownValue,
+  buildEditableFields,
+  formatEditorValue,
+  hasDisplayLink,
+  parseNodeFieldValue,
+  supportsDisplayMode,
+} from "./NodeFieldEditor";
 import { buildRawNodeEditorValue, parseRawNodeEditorValue } from "./nodeDetailRawJson";
+import { CloseIcon, FullscreenIcon } from "./ui/ModalIcons";
 
 interface NodeDetailModalProps {
   open: boolean;
   nodeKey: NodeKey | null;
   node: DagNode | null;
-  fieldMapping: FieldMapping;
+
   initialFocus?: "fields" | "raw";
   relativeLinkRoot: RelativeLinkRoot | null;
   onOpenRelativeLink: (url: string) => void;
@@ -19,7 +29,17 @@ interface NodeDetailModalProps {
   onClose: () => void;
 }
 
-export default function NodeDetailModal({ open, nodeKey, node, fieldMapping, initialFocus = "fields", relativeLinkRoot, onOpenRelativeLink, onRelativeLinkError, onSave, onClose }: NodeDetailModalProps) {
+export default function NodeDetailModal({
+  open,
+  nodeKey,
+  node,
+  initialFocus = "fields",
+  relativeLinkRoot,
+  onOpenRelativeLink,
+  onRelativeLinkError,
+  onSave,
+  onClose,
+}: NodeDetailModalProps) {
   const [fields, setFields] = useState<EditableField[]>([]);
   const [values, setValues] = useState<Record<string, string>>({});
   const [rawJsonValue, setRawJsonValue] = useState("");
@@ -31,16 +51,16 @@ export default function NodeDetailModal({ open, nodeKey, node, fieldMapping, ini
 
   useEffect(() => {
     if (open && node && nodeKey) {
-      const nextFields = buildEditableFields(nodeKey, node, fieldMapping);
+      const nextFields = buildEditableFields(nodeKey, node);
       setFields(nextFields);
       setValues(Object.fromEntries(nextFields.map((field) => [field.name, formatEditorValue(field)])));
-      setRawJsonValue(buildRawNodeEditorValue(nodeKey, node, fieldMapping));
+      setRawJsonValue(buildRawNodeEditorValue(nodeKey, node));
       setLastEdited("fields");
       setFieldDisplayModes(buildDefaultFieldDisplayModes(nextFields));
       setIsEditing(false);
       setError("");
     }
-  }, [fieldMapping, node, nodeKey, open]);
+  }, [node, nodeKey, open]);
 
   useEffect(() => {
     if (open) {
@@ -66,7 +86,11 @@ export default function NodeDetailModal({ open, nodeKey, node, fieldMapping, ini
   const draftKey = String(values.key || currentNodeKey).trim() || currentNodeKey;
 
   return (
-    <div id="node-detail-modal" className={`node-detail-modal is-visible${isFullscreen ? " is-fullscreen" : ""}`} aria-hidden="false">
+    <div
+      id="node-detail-modal"
+      className={`node-detail-modal is-visible${isFullscreen ? " is-fullscreen" : ""}`}
+      aria-hidden="false"
+    >
       <div className="node-detail-page" role="dialog" aria-modal="true" aria-labelledby="node-detail-title">
         <div className="node-detail-header">
           <div className="node-detail-header-main">
@@ -76,11 +100,25 @@ export default function NodeDetailModal({ open, nodeKey, node, fieldMapping, ini
           </div>
           <div className="node-detail-actions">
             {isEditing ? (
-              <button id="node-detail-save" className="primary-btn node-detail-save-btn" type="button" title="Save" aria-label="Save" onClick={handleSave}>
+              <button
+                id="node-detail-save"
+                className="primary-btn node-detail-save-btn"
+                type="button"
+                title="Save"
+                aria-label="Save"
+                onClick={handleSave}
+              >
                 <SaveIcon />
               </button>
             ) : (
-              <button id="node-detail-edit" className="ghost-btn node-detail-edit-btn" type="button" title="Edit" aria-label="Edit" onClick={() => setIsEditing(true)}>
+              <button
+                id="node-detail-edit"
+                className="ghost-btn node-detail-edit-btn"
+                type="button"
+                title="Edit"
+                aria-label="Edit"
+                onClick={() => setIsEditing(true)}
+              >
                 <EditIcon />
               </button>
             )}
@@ -95,7 +133,14 @@ export default function NodeDetailModal({ open, nodeKey, node, fieldMapping, ini
             >
               <FullscreenIcon active={isFullscreen} />
             </button>
-            <button id="node-detail-close" className="ghost-btn modal-icon-close-btn" type="button" title="Close" aria-label="Close" onClick={onClose}>
+            <button
+              id="node-detail-close"
+              className="ghost-btn modal-icon-close-btn"
+              type="button"
+              title="Close"
+              aria-label="Close"
+              onClick={onClose}
+            >
               <CloseIcon />
             </button>
           </div>
@@ -104,39 +149,43 @@ export default function NodeDetailModal({ open, nodeKey, node, fieldMapping, ini
           <section className="node-detail-section">
             <h4>Node Fields</h4>
             <div id="node-detail-fields" className="node-detail-fields">
-              {fields.length ? fields.map((field) => (
-                <article key={field.name} className="node-detail-field">
-                  <div className="node-detail-field__header">
-                    <p className="node-detail-field__label">{field.displayName}</p>
-                    {supportsDisplayMode(field) ? (
-                      <FieldDisplayModeToggle
-                        mode={fieldDisplayModes[field.name] || "text"}
-                        onChange={(mode) => setFieldDisplayMode(field.name, mode)}
+              {fields.length ? (
+                fields.map((field) => (
+                  <article key={field.name} className="node-detail-field">
+                    <div className="node-detail-field__header">
+                      <p className="node-detail-field__label">{field.displayName}</p>
+                      {supportsDisplayMode(field) ? (
+                        <FieldDisplayModeToggle
+                          mode={fieldDisplayModes[field.name] || "text"}
+                          onChange={(mode) => setFieldDisplayMode(field.name, mode)}
+                        />
+                      ) : null}
+                    </div>
+                    {isEditing ? (
+                      <NodeFieldEditor
+                        field={field}
+                        value={values[field.name] ?? ""}
+                        displayMode={fieldDisplayModes[field.name] || "text"}
+                        relativeLinkRoot={relativeLinkRoot}
+                        onOpenRelativeLink={onOpenRelativeLink}
+                        onRelativeLinkError={onRelativeLinkError}
+                        onChange={(value) => handleFieldChange(field.name, value)}
                       />
-                    ) : null}
-                  </div>
-                  {isEditing ? (
-                    <NodeFieldEditor
-                      field={field}
-                      value={values[field.name] ?? ""}
-                      displayMode={fieldDisplayModes[field.name] || "text"}
-                      relativeLinkRoot={relativeLinkRoot}
-                      onOpenRelativeLink={onOpenRelativeLink}
-                      onRelativeLinkError={onRelativeLinkError}
-                      onChange={(value) => handleFieldChange(field.name, value)}
-                    />
-                  ) : (
-                    <NodeFieldPreview
-                      field={field}
-                      value={values[field.name] ?? ""}
-                      displayMode={fieldDisplayModes[field.name] || "text"}
-                      relativeLinkRoot={relativeLinkRoot}
-                      onOpenRelativeLink={onOpenRelativeLink}
-                      onRelativeLinkError={onRelativeLinkError}
-                    />
-                  )}
-                </article>
-              )) : <p className="node-detail-empty">No fields are available for this node.</p>}
+                    ) : (
+                      <NodeFieldPreview
+                        field={field}
+                        value={values[field.name] ?? ""}
+                        displayMode={fieldDisplayModes[field.name] || "text"}
+                        relativeLinkRoot={relativeLinkRoot}
+                        onOpenRelativeLink={onOpenRelativeLink}
+                        onRelativeLinkError={onRelativeLinkError}
+                      />
+                    )}
+                  </article>
+                ))
+              ) : (
+                <p className="node-detail-empty">No fields are available for this node.</p>
+              )}
               {error ? <p className="node-detail-error">{error}</p> : null}
             </div>
           </section>
@@ -154,7 +203,9 @@ export default function NodeDetailModal({ open, nodeKey, node, fieldMapping, ini
                 />
               </div>
             ) : (
-              <pre id="node-detail-json-preview" className="node-detail-json">{rawJsonValue}</pre>
+              <pre id="node-detail-json-preview" className="node-detail-json">
+                {rawJsonValue}
+              </pre>
             )}
           </section>
         </div>
@@ -168,7 +219,7 @@ export default function NodeDetailModal({ open, nodeKey, node, fieldMapping, ini
     setLastEdited("fields");
     setError("");
 
-    const nextRawJson = tryBuildRawJsonFromFieldValues(fields, nextValues, currentNodeKey, fieldMapping);
+    const nextRawJson = tryBuildRawJsonFromFieldValues(fields, nextValues, currentNodeKey);
     if (nextRawJson) {
       setRawJsonValue(nextRawJson);
     }
@@ -179,28 +230,30 @@ export default function NodeDetailModal({ open, nodeKey, node, fieldMapping, ini
     setLastEdited("raw");
     setError("");
 
-    const parsed = parseRawNodeEditorValue(nextRawJson, currentNodeKey, fieldMapping);
+    const parsed = parseRawNodeEditorValue(nextRawJson);
     if (!parsed.ok) {
       return;
     }
 
-    const nextFields = buildEditableFields(parsed.nextKey, { ...parsed.fields, key: parsed.nextKey }, fieldMapping);
+    const nextFields = buildEditableFields(parsed.nextKey, { ...parsed.fields, key: parsed.nextKey });
     setFields(nextFields);
     setValues(Object.fromEntries(nextFields.map((field) => [field.name, formatEditorValue(field)])));
     setFieldDisplayModes((current) => {
       const defaults = buildDefaultFieldDisplayModes(nextFields);
-      return Object.fromEntries(Object.keys(defaults).map((fieldName) => [fieldName, current[fieldName] ?? defaults[fieldName]]));
+      return Object.fromEntries(
+        Object.keys(defaults).map((fieldName) => [fieldName, current[fieldName] ?? defaults[fieldName]]),
+      );
     });
   }
 
   function handleSave() {
     if (lastEdited === "raw") {
-      const parsed = parseRawNodeEditorValue(rawJsonValue, currentNodeKey, fieldMapping);
+      const parsed = parseRawNodeEditorValue(rawJsonValue);
       if (!parsed.ok) {
         setError(parsed.message);
         return;
       }
-      if (!validateNodeRelations(parsed.nextKey, parsed.fields, fieldMapping)) {
+      if (!validateNodeRelations(parsed.nextKey, parsed.fields)) {
         setError("A node cannot reference itself.");
         return;
       }
@@ -219,7 +272,7 @@ export default function NodeDetailModal({ open, nodeKey, node, fieldMapping, ini
       return;
     }
 
-    const patch: Record<string, unknown> = {};
+    const patch: Record<string, unknown> = Object.create(null);
     for (const field of fields) {
       if (field.name === "key") {
         continue;
@@ -232,7 +285,7 @@ export default function NodeDetailModal({ open, nodeKey, node, fieldMapping, ini
       patch[field.name] = parsed.value;
     }
 
-    if (!validateNodeRelations(nextKey, patch, fieldMapping)) {
+    if (!validateNodeRelations(nextKey, patch)) {
       setError("A node cannot reference itself.");
       return;
     }
@@ -279,14 +332,13 @@ function tryBuildRawJsonFromFieldValues(
   fields: EditableField[],
   values: Record<string, string>,
   fallbackKey: NodeKey,
-  fieldMapping: FieldMapping,
 ): string | null {
   const nextKey = String(values.key ?? fallbackKey).trim();
   if (!nextKey || nextKey.includes("\n") || nextKey.includes(",")) {
     return null;
   }
 
-  const patch: Record<string, unknown> = {};
+  const patch: Record<string, unknown> = Object.create(null);
   for (const field of fields) {
     if (field.name === "key") {
       continue;
@@ -298,31 +350,31 @@ function tryBuildRawJsonFromFieldValues(
     patch[field.name] = parsed.value;
   }
 
-  if (!validateNodeRelations(nextKey, patch, fieldMapping)) {
+  if (!validateNodeRelations(nextKey, patch)) {
     return null;
   }
 
-  return buildRawNodeEditorValue(nextKey, patch, fieldMapping);
+  return buildRawNodeEditorValue(nextKey, patch);
 }
 
-function validateNodeRelations(nextKey: NodeKey, fields: Record<string, unknown>, fieldMapping: FieldMapping): boolean {
-  const parentKeys = getRelationKeys(fields[getMappedFieldName(fieldMapping, "parents")]);
-  const childKeys = getRelationKeys(fields[getMappedFieldName(fieldMapping, "children")]);
+function validateNodeRelations(nextKey: NodeKey, fields: Record<string, unknown>): boolean {
+  const parentKeys = getRelationKeys(fields.parents);
+  const childKeys = getRelationKeys(fields.children);
   return !parentKeys.includes(nextKey) && !childKeys.includes(nextKey);
-}
-
-function CloseIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="modal-icon-close-svg" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M6 6L18 18" />
-      <path d="M18 6L6 18" />
-    </svg>
-  );
 }
 
 function EditIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="modal-icon-close-svg" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg
+      viewBox="0 0 24 24"
+      className="modal-icon-close-svg"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
       <path d="M12 20h9" />
       <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
     </svg>
@@ -331,32 +383,19 @@ function EditIcon() {
 
 function SaveIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="modal-icon-close-svg" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg
+      viewBox="0 0 24 24"
+      className="modal-icon-close-svg"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
       <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
       <path d="M17 21v-8H7v8" />
       <path d="M7 3v5h8" />
-    </svg>
-  );
-}
-
-function FullscreenIcon({ active }: { active: boolean }) {
-  if (active) {
-    return (
-      <svg viewBox="0 0 24 24" className="modal-icon-close-svg" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M8 3v5H3" />
-        <path d="M21 8h-5V3" />
-        <path d="M16 21v-5h5" />
-        <path d="M3 16h5v5" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg viewBox="0 0 24 24" className="modal-icon-close-svg" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 8V3h5" />
-      <path d="M16 3h5v5" />
-      <path d="M21 16v5h-5" />
-      <path d="M8 21H3v-5" />
     </svg>
   );
 }
@@ -407,8 +446,12 @@ function NodeFieldPreview({
 }
 
 function buildDefaultFieldDisplayModes(fields: EditableField[]): Record<string, FieldDisplayMode> {
-  return Object.fromEntries(fields.filter((field) => supportsDisplayMode(field)).map((field) => {
-    const value = formatEditorValue(field);
-    return [field.name, hasDisplayLink(value) ? "link" : "markdown"];
-  }));
+  return Object.fromEntries(
+    fields
+      .filter((field) => supportsDisplayMode(field))
+      .map((field) => {
+        const value = formatEditorValue(field);
+        return [field.name, hasDisplayLink(value) ? "link" : "markdown"];
+      }),
+  );
 }

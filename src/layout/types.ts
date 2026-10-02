@@ -1,4 +1,4 @@
-import type { DagNode, GraphLayoutMode, GraphSelection, NodeKey, RelationValue } from "../graph/types";
+import type { DagNode, GraphRenderMode, GraphSelection, NodeKey, RelationValue } from "../graph/types";
 
 export interface StageNodeColorTokens {
   glow: string;
@@ -13,6 +13,8 @@ export interface StageNodeColorTokens {
 }
 
 export interface StageNode {
+  kind?: "node" | "group";
+  external?: boolean;
   key: NodeKey;
   layer: number;
   order: number;
@@ -27,9 +29,19 @@ export interface StageNode {
   isRoot: boolean;
   x: number;
   y: number;
+  flow?: {
+    value: number;
+    incoming: number;
+    outgoing: number;
+    color: string;
+    labelSide: "left" | "right";
+    labelY: number;
+  };
 }
 
 export interface StageEdge {
+  originalEdgeIds?: string[];
+  description?: string;
   id: string;
   source: NodeKey;
   target: NodeKey;
@@ -38,18 +50,19 @@ export interface StageEdge {
   points?: StageRoutePoint[];
   path: string;
   labelPosition: { x: number; y: number };
+  flow?: { width: number; color: string; feedback?: boolean; directionPath?: string };
 }
 
-export interface StageLane {
+interface StageLane {
   layer: number;
   label: string;
   x: number;
   width: number;
 }
 
-export type LayoutCoordinate = [number, number];
+type LayoutCoordinate = [number, number];
 
-export type LayoutCoordinateMap = Map<NodeKey, LayoutCoordinate>;
+type LayoutCoordinateMap = Map<NodeKey, LayoutCoordinate>;
 
 export interface LayoutRoutePoint {
   layer: number;
@@ -87,8 +100,9 @@ export interface ResolvedStageSelection {
 }
 
 export interface StageData {
+  groups?: StageGroup[];
   dag: Record<NodeKey, DagNode & { synthetic?: boolean }>;
-  layoutMode: GraphLayoutMode;
+  layoutMode: GraphRenderMode;
   root: NodeKey;
   selection: ResolvedStageSelection;
   topLevelKeys: NodeKey[];
@@ -101,4 +115,15 @@ export interface StageData {
   stageWidth: number;
   stageHeight: number;
   warnings: string[];
+}
+
+export interface StageGroup {
+  id: string;
+  title: string;
+  depth: number;
+  leafCount: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
