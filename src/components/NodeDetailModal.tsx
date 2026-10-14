@@ -1,31 +1,42 @@
 import { useEffect, useState } from "react";
 import type { RelativeLinkRoot } from "../adapters/relativeLinks";
 import { getRelationKeys } from "../graph/relations";
-import type { DagNode, NodeKey } from "../graph/types";
+import { getTimelineEditError } from "../graph/timelineEditing";
+import type { DagNode, NodeKey, NormalizedDag } from "../graph/types";
 import NodeFieldEditor, {
   type EditableField,
   type FieldDisplayMode,
-  LinkValue,
   MarkdownValue,
   buildEditableFields,
   formatEditorValue,
-  hasDisplayLink,
   parseNodeFieldValue,
   supportsDisplayMode,
 } from "./NodeFieldEditor";
 import { buildRawNodeEditorValue, parseRawNodeEditorValue } from "./nodeDetailRawJson";
 import { CloseIcon, FullscreenIcon } from "./ui/ModalIcons";
+import NodeTimeEditor from "./NodeTimeEditor";
+import NodeJsonView from "./NodeJsonView";
+import NodeRelationsPanel from "./NodeRelationsPanel";
+
+const NODE_DETAIL_TABS = [
+  { id: "fields", label: "Node Fields" },
+  { id: "raw", label: "Raw JSON" },
+  { id: "edges", label: "Edges" },
+] as const;
+type NodeDetailTab = (typeof NODE_DETAIL_TABS)[number]["id"];
 
 interface NodeDetailModalProps {
   open: boolean;
   nodeKey: NodeKey | null;
   node: DagNode | null;
-
+  graph: NormalizedDag | null;
+  timeline?: boolean;
+  timelineReferenceTime?: number;
   initialFocus?: "fields" | "raw";
   relativeLinkRoot: RelativeLinkRoot | null;
   onOpenRelativeLink: (url: string) => void;
   onRelativeLinkError: (message: string) => void;
-  onSave: (nextKey: NodeKey, fields: Record<string, unknown>) => void;
+  onSave: (nextKey: NodeKey, fields: Record<string, unknown>) => string | void;
   onClose: () => void;
 }
 
@@ -33,6 +44,9 @@ export default function NodeDetailModal({
   open,
   nodeKey,
   node,
+  graph,
+  timeline = false,
+  timelineReferenceTime,
   initialFocus = "fields",
   relativeLinkRoot,
   onOpenRelativeLink,
@@ -46,7 +60,8 @@ export default function NodeDetailModal({
   const [lastEdited, setLastEdited] = useState<"fields" | "raw">("fields");
   const [fieldDisplayModes, setFieldDisplayModes] = useState<Record<string, FieldDisplayMode>>({});
   const [isEditing, setIsEditing] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(true);
+  const [activeTab, setActiveTab] = useState<NodeDetailTab>(initialFocus);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -64,9 +79,15 @@ export default function NodeDetailModal({
 
   useEffect(() => {
     if (open) {
-      setIsFullscreen(false);
+      setIsFullscreen(true);
     }
   }, [nodeKey, open]);
+
+  useEffect(() => {
+    if (open) {
+      setActiveTab(initialFocus);
+    }
+  }, [initialFocus, nodeKey, open]);
 
   useEffect(() => {
     if (!open || !isEditing || initialFocus !== "raw") {
@@ -84,6 +105,8 @@ export default function NodeDetailModal({
 
   const currentNodeKey = nodeKey;
   const draftKey = String(values.key || currentNodeKey).trim() || currentNodeKey;
+  const draftTitle = typeof node.title === "string" ? values.title?.trim() : "";
+  const showTimeEditor = timeline || fields.some((field) => field.name === "time");
 
   return (
     <div
@@ -93,11 +116,9 @@ export default function NodeDetailModal({
     >
       <div className="node-detail-page" role="dialog" aria-modal="true" aria-labelledby="node-detail-title">
         <div className="node-detail-header">
-          <div className="node-detail-header-main">
-            <div>
-              <h3 id="node-detail-title">{draftKey}</h3>
-            </div>
-          </div>
+          <h1 id="node-detail-title" className="node-detail-title" title={draftTitle || draftKey}>
+            {draftTitle || draftKey}
+          </h1>
           <div className="node-detail-actions">
             {isEditing ? (
               <button
@@ -146,67 +167,125 @@ export default function NodeDetailModal({
           </div>
         </div>
         <div className="node-detail-body">
-          <section className="node-detail-section">
-            <h4>Node Fields</h4>
+          <div className="node-detail-tabs" role="tablist" aria-label="Node content">
+            {NODE_DETAIL_TABS.map(({ id: tab, label }, index) => (
+              <button
+                key={tab}
+                id={`node-detail-tab-${tab}`}
+                className="node-detail-tab"
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab}
+                aria-controls={`node-detail-panel-${tab}`}
+                tabIndex={activeTab === tab ? 0 : -1}
+                onClick={() => setActiveTab(tab)}
+                onKeyDown={(event) => {
+                  let nextIndex: number;
+                  if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+                    const step = event.key === "ArrowRight" ? 1 : -1;
+                    nextIndex = (index + step + NODE_DETAIL_TABS.length) % NODE_DETAIL_TABS.length;
+                  } else if (event.key === "Home") {
+                    nextIndex = 0;
+                  } else if (event.key === "End") {
+                    nextIndex = NODE_DETAIL_TABS.length - 1;
+                  } else {
+                    return;
+                  }
+                  event.preventDefault();
+                  const nextTab = NODE_DETAIL_TABS[nextIndex].id;
+                  setActiveTab(nextTab);
+                  document.getElementById(`node-detail-tab-${nextTab}`)?.focus();
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {error ? (
+            <p className="node-detail-error" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <section
+            id="node-detail-panel-fields"
+            className="node-detail-tab-panel"
+            role="tabpanel"
+            aria-labelledby="node-detail-tab-fields"
+            tabIndex={0}
+            hidden={activeTab !== "fields"}
+          >
+            {showTimeEditor && (
+              <NodeTimeEditor
+                time={getDraftValue("time")}
+                track={getDraftValue("track")}
+                readOnly={!isEditing}
+                referenceTime={timelineReferenceTime}
+                onChange={handleTimelineChange}
+              />
+            )}
             <div id="node-detail-fields" className="node-detail-fields">
               {fields.length ? (
-                fields.map((field) => (
-                  <article key={field.name} className="node-detail-field">
-                    <div className="node-detail-field__header">
-                      <p className="node-detail-field__label">{field.displayName}</p>
-                      {supportsDisplayMode(field) ? (
-                        <FieldDisplayModeToggle
-                          mode={fieldDisplayModes[field.name] || "text"}
-                          onChange={(mode) => setFieldDisplayMode(field.name, mode)}
-                        />
-                      ) : null}
-                    </div>
-                    {isEditing ? (
-                      <NodeFieldEditor
-                        field={field}
-                        value={values[field.name] ?? ""}
-                        displayMode={fieldDisplayModes[field.name] || "text"}
-                        relativeLinkRoot={relativeLinkRoot}
-                        onOpenRelativeLink={onOpenRelativeLink}
-                        onRelativeLinkError={onRelativeLinkError}
-                        onChange={(value) => handleFieldChange(field.name, value)}
-                      />
-                    ) : (
-                      <NodeFieldPreview
-                        field={field}
-                        value={values[field.name] ?? ""}
-                        displayMode={fieldDisplayModes[field.name] || "text"}
-                        relativeLinkRoot={relativeLinkRoot}
-                        onOpenRelativeLink={onOpenRelativeLink}
-                        onRelativeLinkError={onRelativeLinkError}
-                      />
-                    )}
-                  </article>
-                ))
+                fields
+                  .filter((field) => !showTimeEditor || !["time", "track"].includes(field.name))
+                  .map((field) => (
+                    <article key={field.name} className="node-detail-field">
+                      <div className="node-detail-field__header">
+                        <h3 className="node-detail-field__label">{field.displayName}</h3>
+                        {supportsDisplayMode(field) ? (
+                          <FieldDisplayModeToggle
+                            mode={fieldDisplayModes[field.name] || "text"}
+                            onChange={(mode) => setFieldDisplayMode(field.name, mode)}
+                          />
+                        ) : null}
+                      </div>
+                      <div className="node-detail-field__value">
+                        {isEditing ? (
+                          <NodeFieldEditor
+                            field={field}
+                            value={values[field.name] ?? ""}
+                            displayMode={fieldDisplayModes[field.name] || "text"}
+                            relativeLinkRoot={relativeLinkRoot}
+                            onOpenRelativeLink={onOpenRelativeLink}
+                            onRelativeLinkError={onRelativeLinkError}
+                            onChange={(value) => handleFieldChange(field.name, value)}
+                          />
+                        ) : (
+                          <NodeFieldPreview
+                            field={field}
+                            value={values[field.name] ?? ""}
+                            displayMode={fieldDisplayModes[field.name] || "text"}
+                            relativeLinkRoot={relativeLinkRoot}
+                            onOpenRelativeLink={onOpenRelativeLink}
+                            onRelativeLinkError={onRelativeLinkError}
+                          />
+                        )}
+                      </div>
+                    </article>
+                  ))
               ) : (
                 <p className="node-detail-empty">No fields are available for this node.</p>
               )}
-              {error ? <p className="node-detail-error">{error}</p> : null}
             </div>
           </section>
-          <section className="node-detail-section">
-            <h4>Raw JSON</h4>
-            {isEditing ? (
-              <div className="node-detail-editor-wrap">
-                <textarea
-                  id="node-detail-json"
-                  className="node-detail-editor node-detail-editor--textarea node-detail-editor--json"
-                  rows={16}
-                  spellCheck={false}
-                  value={rawJsonValue}
-                  onChange={(event) => handleRawJsonChange(event.currentTarget.value)}
-                />
-              </div>
-            ) : (
-              <pre id="node-detail-json-preview" className="node-detail-json">
-                {rawJsonValue}
-              </pre>
-            )}
+          <section
+            id="node-detail-panel-raw"
+            className="node-detail-tab-panel"
+            role="tabpanel"
+            aria-labelledby="node-detail-tab-raw"
+            tabIndex={0}
+            hidden={activeTab !== "raw"}
+          >
+            <NodeJsonView value={rawJsonValue} editable={isEditing} onChange={handleRawJsonChange} />
+          </section>
+          <section
+            id="node-detail-panel-edges"
+            className="node-detail-tab-panel"
+            role="tabpanel"
+            aria-labelledby="node-detail-tab-edges"
+            tabIndex={0}
+            hidden={activeTab !== "edges"}
+          >
+            <NodeRelationsPanel graph={graph} nodeKey={currentNodeKey} />
           </section>
         </div>
       </div>
@@ -223,6 +302,32 @@ export default function NodeDetailModal({
     if (nextRawJson) {
       setRawJsonValue(nextRawJson);
     }
+  }
+
+  function getDraftValue(name: string): unknown {
+    const field = fields.find((item) => item.name === name);
+    if (!field) return undefined;
+    const parsed = parseNodeFieldValue(field, values[name] ?? "");
+    return parsed.ok ? parsed.value : values[name];
+  }
+
+  function handleTimelineChange(time: unknown, track: string) {
+    const nextFields = fields.filter((field) => !["time", "track"].includes(field.name));
+    const added = buildEditableFields(currentNodeKey, {
+      ...(time === undefined ? {} : { time }),
+      ...(track ? { track } : {}),
+    }).filter((field) => field.name !== "key");
+    nextFields.push(...added);
+    const nextValues = { ...values };
+    delete nextValues.time;
+    delete nextValues.track;
+    for (const field of added) nextValues[field.name] = formatEditorValue(field);
+    setFields(nextFields);
+    setValues(nextValues);
+    setLastEdited("fields");
+    setError("");
+    const raw = tryBuildRawJsonFromFieldValues(nextFields, nextValues, currentNodeKey);
+    if (raw) setRawJsonValue(raw);
   }
 
   function handleRawJsonChange(nextRawJson: string) {
@@ -257,8 +362,7 @@ export default function NodeDetailModal({
         setError("A node cannot reference itself.");
         return;
       }
-      onSave(parsed.nextKey, parsed.fields);
-      setIsEditing(false);
+      saveValidated(parsed.nextKey, parsed.fields);
       return;
     }
 
@@ -289,7 +393,20 @@ export default function NodeDetailModal({
       setError("A node cannot reference itself.");
       return;
     }
-    onSave(nextKey, patch);
+    saveValidated(nextKey, patch);
+  }
+
+  function saveValidated(nextKey: NodeKey, patch: Record<string, unknown>) {
+    const timeError = getTimelineEditError(node ?? undefined, patch, timelineReferenceTime);
+    if (timeError) {
+      setError(timeError);
+      return;
+    }
+    const saveError = onSave(nextKey, patch);
+    if (saveError) {
+      setError(saveError);
+      return;
+    }
     setIsEditing(false);
   }
 
@@ -307,7 +424,6 @@ function FieldDisplayModeToggle({
 }) {
   const modes: Array<{ mode: FieldDisplayMode; label: string }> = [
     { mode: "markdown", label: "Markdown" },
-    { mode: "link", label: "Link" },
     { mode: "text", label: "Text" },
   ];
 
@@ -429,16 +545,6 @@ function NodeFieldPreview({
       />
     );
   }
-  if (displayMode === "link" && supportsDisplayMode(field)) {
-    return (
-      <LinkValue
-        value={value}
-        previewSurface
-        relativeLinkRoot={relativeLinkRoot}
-        onOpenRelativeLink={onOpenRelativeLink}
-      />
-    );
-  }
   if (field.name === "key" || field.editorKind === "plainText" || field.editorKind === "multilineText") {
     return <p className="node-detail-text">{value}</p>;
   }
@@ -447,11 +553,6 @@ function NodeFieldPreview({
 
 function buildDefaultFieldDisplayModes(fields: EditableField[]): Record<string, FieldDisplayMode> {
   return Object.fromEntries(
-    fields
-      .filter((field) => supportsDisplayMode(field))
-      .map((field) => {
-        const value = formatEditorValue(field);
-        return [field.name, hasDisplayLink(value) ? "link" : "markdown"];
-      }),
+    fields.filter((field) => supportsDisplayMode(field)).map((field) => [field.name, "markdown"]),
   );
 }

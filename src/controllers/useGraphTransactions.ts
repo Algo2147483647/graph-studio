@@ -53,14 +53,17 @@ export function useGraphTransactions({
     else appearanceHistory.undo();
   }, [appearanceHistory.undo, dispatch, state.editHistory.undoStack.length]);
 
-  const commitCommands = useCallback((commands: GraphCommand[], label: string): string | undefined => {
-    try {
-      const action = prepareCommandTransaction(state, commands, label);
-      if (action) dispatch(action);
-    } catch (error) {
-      return error instanceof Error ? error.message : "Unable to update the graph.";
-    }
-  }, [state, dispatch]);
+  const commitCommands = useCallback(
+    (commands: GraphCommand[], label: string): string | undefined => {
+      try {
+        const action = prepareCommandTransaction(state, commands, label);
+        if (action) dispatch(action);
+      } catch (error) {
+        return error instanceof Error ? error.message : "Unable to update the graph.";
+      }
+    },
+    [state, dispatch],
+  );
 
   const redo = useCallback(() => {
     if (state.editHistory.redoStack.length) dispatch({ type: "redoRequested" });

@@ -33,7 +33,7 @@ export default function ExampleGallery({ onOpen, busy }: { onOpen: (id: string) 
   );
 }
 
-function ExampleArt({ kind, color }: { kind: string; color: string }) {
+function ExampleArt({ kind, color }: { kind: (typeof EXAMPLE_WORKSPACES)[number]["id"]; color: string }) {
   return (
     <svg className="example-art" viewBox="0 0 320 132" fill="none" aria-hidden="true">
       <defs>
@@ -42,7 +42,39 @@ function ExampleArt({ kind, color }: { kind: string; color: string }) {
         </pattern>
       </defs>
       <rect width="320" height="132" fill={`url(#dots-${kind})`} />
-      {kind === "commerce" ? (
+      {kind === "china-history" ? (
+        <>
+          <g stroke={color} opacity=".13">
+            <path d="M25 25H295M25 65H295M25 107H295" />
+            <path d="M30 15V117" />
+          </g>
+          <g strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M148 24V38Q148 43 143 43H79Q74 43 74 48V65" stroke="#ad755b" />
+            <path d="M148 24V65" stroke="#6b9185" />
+            <path d="M148 24V38Q148 43 153 43H227Q232 43 232 48V65" stroke="#9c88a7" />
+            <path d="M74 65V82Q74 87 79 87H143Q148 87 148 92V107" stroke="#ad755b" />
+            <path d="M148 65V107" stroke="#6b9185" />
+            <path d="M232 65V82Q232 87 227 87H153Q148 87 148 92V107" stroke="#9c88a7" />
+          </g>
+          {(
+            [
+              [148, 24, "Han", color],
+              [74, 65, "Wei", "#ad755b"],
+              [148, 65, "Shu", "#6b9185"],
+              [232, 65, "Wu", "#9c88a7"],
+              [148, 107, "Jin", color],
+            ] as const
+          ).map(([x, y, label, tint]) => (
+            <g key={label}>
+              <circle cx={x} cy={y} r="4.5" fill={tint} stroke="#fffaf3" strokeWidth="2" />
+              <rect x={x + 9} y={y - 10} width="31" height="18" rx="4" fill="#f8f3eb" fillOpacity=".85" />
+              <text x={x + 12} y={y + 3} fill={tint} fontSize="10" fontFamily="Georgia, serif">
+                {label}
+              </text>
+            </g>
+          ))}
+        </>
+      ) : kind === "commerce" ? (
         <g stroke={color}>
           <rect x="22" y="16" width="200" height="100" rx="9" fill="white" fillOpacity=".7" strokeOpacity=".5" />
           <text x="34" y="34" fill={color} stroke="none" fontSize="11">
@@ -87,31 +119,112 @@ function ExampleArt({ kind, color }: { kind: string; color: string }) {
             </g>
           ))}
         </>
+      ) : kind === "space-history" ? (
+        <>
+          <g stroke={color} strokeWidth="1" opacity=".2">
+            <path d="M25 27H296M25 65H296M25 103H296" />
+          </g>
+          <g stroke={color} strokeWidth="2.5" strokeLinecap="round">
+            <path d="M92 15V118M92 42C92 53 169 47 169 65V100M169 88C169 103 92 94 92 110" />
+            <path d="M239 24V109" stroke="#8c9b81" />
+          </g>
+          <path d="M169 65V83" stroke={color} strokeWidth="9" strokeLinecap="round" opacity=".7" />
+          <path d="M239 43V81" stroke="#8c9b81" strokeWidth="9" strokeLinecap="round" opacity=".7" />
+          {[
+            [92, 27],
+            [92, 42],
+            [92, 110],
+            [169, 65],
+            [169, 88],
+            [239, 24],
+            [239, 103],
+          ].map(([x, y], i) => (
+            <circle key={i} cx={x} cy={y} r="4" fill="white" stroke={x === 239 ? "#8c9b81" : color} strokeWidth="2" />
+          ))}
+          <g fill={color} fontSize="9" fontFamily="sans-serif" opacity=".75">
+            <text x="27" y="25">
+              1957
+            </text>
+            <text x="27" y="63">
+              1969
+            </text>
+            <text x="27" y="101">
+              2025
+            </text>
+            <text x="106" y="25">
+              Earth
+            </text>
+            <text x="181" y="68">
+              Moon
+            </text>
+            <text x="251" y="45">
+              Beyond
+            </text>
+          </g>
+        </>
       ) : (
         <>
-          <g strokeLinecap="butt" opacity=".25">
-            <path d="M43 34C94 34 107 46 153 46S220 26 275 26" stroke={color} strokeWidth="23" />
-            <path d="M43 93C100 93 105 60 153 60S220 61 275 61" stroke={color} strokeWidth="14" />
-            <path
-              d="M43 103C104 103 105 93 153 93S220 103 275 103"
-              stroke={kind === "factorio" ? "#8d9980" : "#789bc2"}
-              strokeWidth="17"
-            />
-            <path d="M153 48C206 48 215 91 275 91" stroke={color} strokeWidth="8" />
+          <g fill="none" strokeWidth="13" opacity=".35">
+            <path d="M40 30C72 30 80 51 112 51" stroke="#d5854c" />
+            <path d="M40 66H112" stroke="#9074bb" />
+            <path d="M40 102C72 102 80 81 112 81" stroke="#7bad62" />
           </g>
-          <g fill={color}>
-            {[
-              [36, 22, 24],
-              [36, 85, 27],
-              [150, 34, 38],
-              [150, 83, 20],
-              [274, 14, 24],
-              [274, 53, 16],
-              [274, 85, 26],
-            ].map(([x, y, h], i) => (
-              <rect key={i} x={x} y={y} width="7" height={h} rx="2" />
-            ))}
-          </g>
+          {(
+            [
+              [30, "Ore", "#d5854c"],
+              [66, "Oil", "#9074bb"],
+              [102, "Bio", "#7bad62"],
+            ] as const
+          ).map(([y, label, tint]) => (
+            <g key={label}>
+              <rect x="30" y={y - 10} width="9" height="20" rx="3" fill={tint} />
+              <text x="48" y={y - 12} fill={tint} fontSize="9" fontFamily="sans-serif">
+                {label}
+              </text>
+            </g>
+          ))}
+          <rect x="111" y="35" width="15" height="62" rx="4" fill="#3e948a" />
+          <text x="118" y="116" fill="#3e948a" fontSize="9" textAnchor="middle">
+            Production
+          </text>
+          <text x="237" y="18" fill="#647b77" fontSize="9" textAnchor="middle" letterSpacing="1.5">
+            12 SCIENCE PACKS
+          </text>
+          {[
+            "#dc6064",
+            "#60ae6e",
+            "#66768c",
+            "#44aec8",
+            "#a476ce",
+            "#d4ac41",
+            "#9ab2cd",
+            "#df8a42",
+            "#d078b0",
+            "#9cb34c",
+            "#5c8ed3",
+            "#8366a4",
+          ].map((tint, i) => {
+            const x = 178 + (i % 6) * 23,
+              y = i < 6 ? 36 : 83;
+            return (
+              <g key={tint}>
+                <path
+                  d={`M126 ${i < 6 ? 51 : 81} C147 ${i < 6 ? 51 : 81} ${x - 18} ${y + 17} ${x - 6} ${y + 17}`}
+                  stroke={tint}
+                  strokeWidth="2"
+                  opacity=".35"
+                />
+                <path
+                  d={`M${x - 3} ${y}V${y + 7}L${x - 7} ${y + 16}Q${x - 9} ${y + 21} ${x - 4} ${y + 21}H${x + 4}Q${x + 9} ${y + 21} ${x + 7} ${y + 16}L${x + 3} ${y + 7}V${y}Z`}
+                  fill={tint}
+                  fillOpacity=".87"
+                  stroke={tint}
+                  strokeWidth="1"
+                />
+                <path d={`M${x - 4} ${y}H${x + 4}`} stroke={tint} strokeWidth="2" strokeLinecap="round" />
+              </g>
+            );
+          })}
         </>
       )}
     </svg>

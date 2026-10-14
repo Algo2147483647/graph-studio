@@ -6,6 +6,18 @@ import { createSampleDag } from "./fixtures";
 import { defineSuite, defineTest } from "./harness";
 
 export const appearanceSuite = defineSuite("appearance", [
+  defineTest("node dots default to visible and a hidden preference survives reload", () => {
+    assert.equal(sanitizeGraphAppearance({ display: {} }).display.showNodeDots, true);
+    const appearance = sanitizeGraphAppearance({ display: { showNodeDots: false } });
+    const parsed = parseGraphPagePreferences(JSON.stringify({ chartStyles: { "node-link": { appearance } } }));
+    const restored = parsed!.chartStyles!["node-link"].appearance;
+    assert.equal(restored.display.showNodeDots, false);
+    assert.equal((appearanceToStageStyle(restored) as Record<string, unknown>)["--dag-node-pin-display"], "none");
+    assert.equal(
+      (appearanceToStageStyle(DEFAULT_GRAPH_APPEARANCE) as Record<string, unknown>)["--dag-node-pin-display"],
+      "inline",
+    );
+  }),
   defineTest("sanitizeGraphAppearance fills defaults and clamps layout values", () => {
     const appearance = sanitizeGraphAppearance({
       layout: {
@@ -23,14 +35,15 @@ export const appearanceSuite = defineSuite("appearance", [
     assert.equal(appearance.layout.minNodeWidth, 260);
     assert.equal(appearance.layout.maxNodeWidth, 260);
     assert.equal(appearance.layout.stageMinWidth, 4000);
-    assert.equal(appearance.display.showEdgeLabels, true);
+    assert.equal(appearance.display.showEdgeLabels, false);
     assert.equal(appearance.css, DEFAULT_GRAPH_APPEARANCE.css);
   }),
 
   defineTest("sanitizeGraphAppearance preserves edge label display preference", () => {
+    assert.equal(sanitizeGraphAppearance({ display: { showEdgeLabels: true } }).display.showEdgeLabels, true);
     assert.equal(sanitizeGraphAppearance({ display: { showEdgeLabels: false } }).display.showEdgeLabels, false);
     assert.equal(sanitizeGraphAppearance({ display: { showEdgeLabels: "false" } }).display.showEdgeLabels, false);
-    assert.equal(sanitizeGraphAppearance({ display: {} }).display.showEdgeLabels, true);
+    assert.equal(sanitizeGraphAppearance({ display: {} }).display.showEdgeLabels, false);
   }),
 
   defineTest("sanitizeGraphAppearance only accepts dag css vars and removes imports", () => {

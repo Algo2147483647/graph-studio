@@ -7,4 +7,3 @@ __pycache__/
 # Converted from package-lock.json by the shared Windows launcher.
 pnpm-lock.yaml
 test-results/
-.idea/

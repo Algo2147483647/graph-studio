@@ -1,3 +1,4 @@
+import TimelineControls, { type TimelineControlsProps } from "../TimelineControls";
 import type { ChangeEvent, Dispatch, SetStateAction } from "react";
 import type { GraphAppearance, GraphLayoutAppearance } from "../../graph/appearance";
 import { type GraphAppearancePresetId, GRAPH_APPEARANCE_PRESETS } from "../../graph/appearanceCommands";
@@ -14,6 +15,7 @@ interface AppearanceSettingsProps {
   chartType: GraphChartType;
   sankeyUnavailableReason: string | null;
   onChartTypeChange: (type: GraphChartType) => void;
+  timelineControls?: TimelineControlsProps;
   layoutMode: GraphLayoutMode;
   appearance: GraphAppearance;
   showNodeDetail: boolean;
@@ -57,6 +59,7 @@ export default function AppearanceSettings(p: AppearanceSettingsProps) {
       .split(/\s+/)
       .every((word) => keywords.toLowerCase().includes(word));
   const isSankey = p.chartType === "sankey";
+  const isTimeline = p.chartType === "timeline";
   const context = (
     <p className="settings-chart-context">
       <strong>{getGraphChartLabel(p.chartType)}</strong>
@@ -74,6 +77,11 @@ export default function AppearanceSettings(p: AppearanceSettingsProps) {
               ["node-link", "Node-link", "Nodes and connecting lines show relationships."],
               ["sankey", "Sankey", "Band widths show the amount flowing between nodes."],
               ["compound", "Nested node-link", "Group nodes into subgraphs, then expand, collapse and explore."],
+              [
+                "timeline",
+                "Timeline",
+                "Position events and durations on a real time axis with branching relationships.",
+              ],
             ] as const
           ).map(([value, label, description]) => (
             <button
@@ -96,6 +104,14 @@ export default function AppearanceSettings(p: AppearanceSettingsProps) {
                       <rect key={y} x={x} y={y} width="28" height="20" rx="5" fill="white" stroke="currentColor" />
                     ))}
                   </>
+                ) : value === "timeline" ? (
+                  <g fill="white" stroke="currentColor" strokeWidth="2">
+                    <path d="M42 9V61M42 20C42 31 94 27 94 39V47C94 57 42 51 42 61" fill="none" />
+                    <circle cx="42" cy="10" r="5" />
+                    <circle cx="42" cy="61" r="5" />
+                    <rect x="89" y="32" width="10" height="18" rx="5" />
+                    <path d="M57 10h55M108 36h34M57 61h55" opacity=".35" />
+                  </g>
                 ) : value === "compound" ? (
                   <g fill="none" stroke="currentColor" strokeWidth="2">
                     <rect x="10" y="5" width="95" height="60" rx="5" />
@@ -188,6 +204,7 @@ export default function AppearanceSettings(p: AppearanceSettingsProps) {
             </p>
           </section>
         )}
+        {isTimeline && p.timelineControls && <TimelineControls {...p.timelineControls} />}
         {isSankey && matches("layout sankey flow automatic width") && (
           <section className="settings-section">
             <h3>Automatic flow layout</h3>
@@ -212,27 +229,38 @@ export default function AppearanceSettings(p: AppearanceSettingsProps) {
             <h3>Spacing & dimensions</h3>
             <p>Fine-tune graph density and label room.</p>
             <div className="settings-slider-grid">
-              {LAYOUT_CONTROLS.filter(
-                (control) =>
-                  !isSankey ||
-                  control.key === "rowGap" ||
-                  control.key === "maxNodeWidth" ||
-                  control.key === "nodeHeight",
+              {LAYOUT_CONTROLS.filter((control) =>
+                isTimeline
+                  ? ["maxNodeWidth", "nodeHeight", "rowGap"].includes(control.key)
+                  : !isSankey ||
+                    control.key === "rowGap" ||
+                    control.key === "maxNodeWidth" ||
+                    control.key === "nodeHeight",
               ).map((control) => (
                 <LayoutSliderControl
                   key={control.key}
                   control={
-                    isSankey
+                    isTimeline
                       ? {
                           ...control,
                           label:
                             control.key === "maxNodeWidth"
-                              ? "Label room"
+                              ? "Event label width"
                               : control.key === "nodeHeight"
-                                ? "Vertical space per node"
-                                : control.label,
+                                ? "Timeline vertical spacing"
+                                : "Label spacing",
                         }
-                      : control
+                      : isSankey
+                        ? {
+                            ...control,
+                            label:
+                              control.key === "maxNodeWidth"
+                                ? "Label room"
+                                : control.key === "nodeHeight"
+                                  ? "Vertical space per node"
+                                  : control.label,
+                          }
+                        : control
                   }
                   value={p.appearance.layout[control.key]}
                   onChange={(value) => p.onLayoutAppearanceChange(control.key, value)}
@@ -436,9 +464,17 @@ export default function AppearanceSettings(p: AppearanceSettingsProps) {
           </div>
         </section>
       )}
-      {matches("appearance visibility view details descriptions borders width labels edges") && (
+      {matches("appearance visibility view details descriptions borders width labels edges dots pins markers") && (
         <section className="settings-section">
           <h3>Visible details</h3>
+          {(p.chartType === "node-link" || p.chartType === "compound") && (
+            <Toggle
+              label="Node dots"
+              description="Show the dot before each node title."
+              checked={p.appearance.display.showNodeDots}
+              onChange={() => p.onAppearanceDisplayChange("showNodeDots", !p.appearance.display.showNodeDots)}
+            />
+          )}
           {!isSankey && (
             <Toggle
               label="Node descriptions"
@@ -453,7 +489,7 @@ export default function AppearanceSettings(p: AppearanceSettingsProps) {
             checked={!p.hideNodeBorders}
             onChange={p.onNodeBordersToggle}
           />
-          {!isSankey && (
+          {!isSankey && !isTimeline && (
             <Toggle
               label="Equal node widths"
               description="Align nodes to the widest visible node."

@@ -31,7 +31,28 @@
       "type": "string"
     },
     "metadata": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "timeline": {
+          "type": "object",
+          "description": "An optional view hint. Timeline preserves the v3 graph and its original edges.",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "version": {
+              "const": 1
+            },
+            "timeZone": {
+              "const": "UTC"
+            },
+            "asOf": {
+              "$ref": "#/$defs/timelineDate"
+            }
+          },
+          "additionalProperties": true
+        }
+      }
     },
     "nodes": {
       "type": "object",
@@ -137,6 +158,13 @@
         },
         "type": {
           "type": "string"
+        },
+        "time": {
+          "$ref": "#/$defs/timelineTime"
+        },
+        "track": {
+          "type": "string",
+          "description": "Optional timeline track. Overlapping events may use adjacent subtracks."
         }
       },
       "additionalProperties": true
@@ -168,9 +196,92 @@
           ]
         },
         "metadata": {
-          "type": "object"
+          "type": "object",
+          "properties": {
+            "timeline": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "sequence",
+                    "dependency",
+                    "reference",
+                    "rendezvous",
+                    "part-of"
+                  ],
+                  "default": "reference"
+                },
+                "sourceAnchor": {
+                  "enum": [
+                    "start",
+                    "end"
+                  ]
+                },
+                "targetAnchor": {
+                  "enum": [
+                    "start",
+                    "end"
+                  ]
+                },
+                "sourceTime": {
+                  "$ref": "#/$defs/timelineDate",
+                  "description": "Explicit time within the source interval, overriding sourceAnchor."
+                },
+                "targetTime": {
+                  "$ref": "#/$defs/timelineDate",
+                  "description": "Explicit time within the target interval, overriding targetAnchor."
+                }
+              },
+              "additionalProperties": true
+            }
+          }
         }
       }
+    },
+    "timelineDate": {
+      "type": "string",
+      "description": "ISO year, year-month, calendar date or date-time with explicit timezone. BCE uses astronomical signed six-digit years: 221 BCE is -000220. Original precision is retained.",
+      "pattern": "^(?!-000000)(?:[+-]\\d{6}|\\d{4})(?:-\\d{2}(?:-\\d{2}(?:T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?(?:Z|[+-]\\d{2}:\\d{2}))?)?)?$"
+    },
+    "timelineTime": {
+      "type": "object",
+      "description": "Instant or interval. Explicit null end means ongoing. Missing time is allowed; malformed imported times are shown in the undated area for correction.",
+      "oneOf": [
+        {
+          "required": [
+            "at"
+          ],
+          "properties": {
+            "at": {
+              "$ref": "#/$defs/timelineDate"
+            },
+            "start": false,
+            "end": false
+          }
+        },
+        {
+          "required": [
+            "start",
+            "end"
+          ],
+          "properties": {
+            "at": false,
+            "start": {
+              "$ref": "#/$defs/timelineDate"
+            },
+            "end": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/timelineDate"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      ]
     }
   }
 }

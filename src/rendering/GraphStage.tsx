@@ -6,11 +6,27 @@ import GraphDefs from "./GraphDefs";
 import GraphEdge from "./GraphEdge";
 import GraphNode from "./GraphNode";
 import { GroupHeader, GroupControls } from "./GraphGroup";
+import TimelineBackdrop, { TimelineRuler } from "./TimelineBackdrop";
+import TimelineNode from "./TimelineNode";
 
 const EMPTY_CONNECTED_KEYS = new Set<string>();
 const DENSE_STAGE_NODE_THRESHOLD = 220;
 const DENSE_STAGE_EDGE_THRESHOLD = 440;
 const DENSE_STAGE_AREA_THRESHOLD = 20_000_000;
+
+// Clear, near-white pastels without gray-blue or purple undertones.
+// Cap the ramp so deeply nested containers never become visually dominant.
+const GROUP_BACKGROUND_PALETTES = [
+  ["#fffdf5", "#fffbea", "#fff7df", "#fff4d5"], // Cream yellow
+  ["#f5fdf9", "#edfdf5", "#e5fbf0", "#dcf8e9"], // Fresh mint
+  ["#fff9f5", "#fff3eb", "#ffede1", "#ffe7d8"], // Light apricot
+  ["#f5fcff", "#edf9ff", "#e4f6ff", "#daf2ff"], // Clear sky blue
+] as const;
+
+function groupBackgroundFill(familyIndex: number, depth: number): string {
+  const palette = GROUP_BACKGROUND_PALETTES[familyIndex % GROUP_BACKGROUND_PALETTES.length];
+  return palette[Math.min(palette.length - 1, Math.max(0, depth))];
+}
 
 interface GraphStageProps {
   onGroupToggle?: (id: string) => void;
@@ -20,6 +36,7 @@ interface GraphStageProps {
   hideNodeBorders: boolean;
   appearance: GraphAppearance;
   svgRef: React.RefObject<SVGSVGElement>;
+  onTimelineNodePin?: (key: string, x: number) => void;
   onNodeClick: (key: string) => void;
   onNodeDoubleClick: (key: string) => void;
   onNodeContextMenu: (event: React.MouseEvent<SVGGElement>, key: string) => void;
@@ -33,6 +50,7 @@ export default function GraphStage({
   hideNodeBorders,
   appearance,
   svgRef,
+  onTimelineNodePin,
   onNodeClick,
   onNodeDoubleClick,
   onNodeContextMenu,
@@ -44,11 +62,11 @@ export default function GraphStage({
   const hoveredKeyRef = useRef<string | null>(null);
   const focusedKeyRef = useRef<string | null>(focusedKey);
   const appliedInteractiveKeyRef = useRef<string | null>(null);
-  const nodeElementsByKeyRef = useRef(new Map<string, SVGGElement>());
+  const nodeElementsByKeyRef = useRef(new Map<string, SVGGElement[]>());
   const edgeElementsByNodeKeyRef = useRef(new Map<string, SVGGElement[]>());
   const connectedNodeElementsRef = useRef(new Set<SVGGElement>());
   const activeEdgeElementsRef = useRef(new Set<SVGGElement>());
-  const currentNodeElementRef = useRef<SVGGElement | null>(null);
+  const currentNodeElementRef = useRef<SVGGElement[]>([]);
   const isDenseStage =
     stage.nodes.length >= DENSE_STAGE_NODE_THRESHOLD ||
     stage.edges.length >= DENSE_STAGE_EDGE_THRESHOLD ||
@@ -63,11 +81,11 @@ export default function GraphStage({
 
     svgElement.dataset.hasInteractiveNode = "false";
 
-    if (currentNodeElementRef.current) {
-      currentNodeElementRef.current.dataset.hovered = "false";
-      currentNodeElementRef.current.dataset.focused = "false";
-      currentNodeElementRef.current = null;
-    }
+    currentNodeElementRef.current.forEach((element) => {
+      element.dataset.hovered = "false";
+      element.dataset.focused = "false";
+    });
+    currentNodeElementRef.current = [];
 
     connectedNodeElementsRef.current.forEach((nodeElement) => {
       nodeElement.dataset.connected = "false";
@@ -91,10 +109,10 @@ export default function GraphStage({
       if (previousKey === nextKey) {
         if (nextKey) {
           const currentNodeElement = nodeElementsByKeyRef.current.get(nextKey);
-          if (currentNodeElement) {
-            currentNodeElement.dataset.hovered = hoveredKeyRef.current === nextKey ? "true" : "false";
-            currentNodeElement.dataset.focused = focusedKeyRef.current === nextKey ? "true" : "false";
-          }
+          currentNodeElement?.forEach((element) => {
+            element.dataset.hovered = hoveredKeyRef.current === nextKey ? "true" : "false";
+            element.dataset.focused = focusedKeyRef.current === nextKey ? "true" : "false";
+          });
         }
         return;
       }
@@ -122,13 +140,17 @@ export default function GraphStage({
         svgElement.dataset.hasInteractiveNode = "true";
       }
 
-      if (currentNodeElementRef.current && currentNodeElementRef.current !== nextNodeElement) {
-        currentNodeElementRef.current.dataset.hovered = "false";
-        currentNodeElementRef.current.dataset.focused = "false";
+      if (currentNodeElementRef.current !== nextNodeElement) {
+        currentNodeElementRef.current.forEach((element) => {
+          element.dataset.hovered = "false";
+          element.dataset.focused = "false";
+        });
       }
 
-      nextNodeElement.dataset.hovered = hoveredKeyRef.current === nextKey ? "true" : "false";
-      nextNodeElement.dataset.focused = focusedKeyRef.current === nextKey ? "true" : "false";
+      nextNodeElement.forEach((element) => {
+        element.dataset.hovered = hoveredKeyRef.current === nextKey ? "true" : "false";
+        element.dataset.focused = focusedKeyRef.current === nextKey ? "true" : "false";
+      });
       currentNodeElementRef.current = nextNodeElement;
 
       previousConnectedKeys.forEach((connectedKey) => {
@@ -139,8 +161,10 @@ export default function GraphStage({
         if (!connectedNodeElement) {
           return;
         }
-        connectedNodeElement.dataset.connected = "false";
-        connectedNodeElementsRef.current.delete(connectedNodeElement);
+        connectedNodeElement.forEach((element) => {
+          element.dataset.connected = "false";
+          connectedNodeElementsRef.current.delete(element);
+        });
       });
 
       nextConnectedKeys.forEach((connectedKey) => {
@@ -148,8 +172,10 @@ export default function GraphStage({
         if (!connectedNodeElement) {
           return;
         }
-        connectedNodeElement.dataset.connected = "true";
-        connectedNodeElementsRef.current.add(connectedNodeElement);
+        connectedNodeElement.forEach((element) => {
+          element.dataset.connected = "true";
+          connectedNodeElementsRef.current.add(element);
+        });
       });
 
       previousEdgeElements.forEach((edgeElement) => {
@@ -247,18 +273,33 @@ export default function GraphStage({
       width={stage.stageWidth}
       height={stage.stageHeight}
       style={stageStyle}
-      role={stage.layoutMode === "compound" ? "group" : "img"}
-      aria-label={`${stage.layoutMode === "compound" ? "Nested graph" : stage.layoutMode === "sankey" ? "Sankey flow" : "DAG"} view focused on ${stage.selection.label}`}
+      role={stage.layoutMode === "compound" || stage.layoutMode === "timeline" ? "group" : "img"}
+      aria-label={`${stage.layoutMode === "timeline" ? "Timeline" : stage.layoutMode === "compound" ? "Nested graph" : stage.layoutMode === "sankey" ? "Sankey flow" : "DAG"} view focused on ${stage.selection.label}`}
       onContextMenu={onBackgroundContextMenu}
     >
-      <GraphDefs appearanceCss={appearance.css} />
-      {stage.layoutMode !== "sankey" && stage.layoutMode !== "compound" && <GraphBackdrop stage={stage} />}
+      <GraphDefs
+        appearanceCss={appearance.css}
+        timelineColors={Array.from(
+          new Set(stage.edges.flatMap((edge) => (edge.timeline ? [edge.timeline.color] : []))),
+        )}
+      />
+      {stage.timeline ? (
+        <TimelineBackdrop stage={stage} />
+      ) : (
+        stage.layoutMode !== "sankey" && stage.layoutMode !== "compound" && <GraphBackdrop stage={stage} />
+      )}
       <g className="dag-group-backgrounds">
         {stage.groups?.map((group) => (
           <rect
             key={group.id}
             data-group-id={group.id}
+            data-depth={group.depth}
             className="dag-group-background"
+            style={
+              {
+                "--dag-group-fill": groupBackgroundFill(group.colorFamilyIndex, group.depth),
+              } as CSSProperties
+            }
             x={group.x}
             y={group.y}
             width={group.width}
@@ -267,6 +308,21 @@ export default function GraphStage({
           />
         ))}
       </g>
+      {stage.timeline && (
+        <g className="timeline-leader-layer" aria-hidden="true" pointerEvents="none">
+          {stage.nodes.map((node) => (
+            <TimelineNode
+              key={node.key}
+              layer="leader"
+              node={node}
+              isActive={node.key === stage.root}
+              onClick={onNodeClick}
+              onContextMenu={onNodeContextMenu}
+              onFocusChange={onFocusChange}
+            />
+          ))}
+        </g>
+      )}
       <g className="dag-edge-layer">
         {stage.edges.map((edge) => (
           <GraphEdge key={edge.id} edge={edge} showLabel={appearance.display.showEdgeLabels} />
@@ -278,6 +334,7 @@ export default function GraphStage({
             key={node.key}
             node={node}
             isActive={node.key === stage.root}
+            onTimelineNodePin={onTimelineNodePin}
             onClick={onNodeClick}
             onDoubleClick={onNodeDoubleClick}
             onContextMenu={onNodeContextMenu}
@@ -304,6 +361,24 @@ export default function GraphStage({
             />
           ))}
       </g>
+      {stage.timeline && (
+        <g className="timeline-label-layer">
+          {stage.nodes.map((node) => (
+            <TimelineNode
+              key={node.key}
+              layer="label"
+              node={node}
+              isActive={node.key === stage.root}
+              onPin={onTimelineNodePin}
+              onClick={onNodeClick}
+              onDoubleClick={onNodeDoubleClick}
+              onContextMenu={onNodeContextMenu}
+              onFocusChange={onFocusChange}
+            />
+          ))}
+        </g>
+      )}
+      {stage.timeline && <TimelineRuler stage={stage} svgRef={svgRef} />}
     </svg>
   );
 
@@ -320,12 +395,12 @@ function resolveNodeKey(target: EventTarget | null): string | null {
   return target.closest<SVGGElement>(".dag-node[data-key]")?.dataset.key || null;
 }
 
-function collectNodeElements(svgElement: SVGSVGElement): Map<string, SVGGElement> {
-  const nodeElementsByKey = new Map<string, SVGGElement>();
+function collectNodeElements(svgElement: SVGSVGElement): Map<string, SVGGElement[]> {
+  const nodeElementsByKey = new Map<string, SVGGElement[]>();
   svgElement.querySelectorAll<SVGGElement>(".dag-node[data-key]").forEach((nodeElement) => {
     const nodeKey = nodeElement.dataset.key;
     if (nodeKey) {
-      nodeElementsByKey.set(nodeKey, nodeElement);
+      nodeElementsByKey.set(nodeKey, [...(nodeElementsByKey.get(nodeKey) ?? []), nodeElement]);
     }
   });
   return nodeElementsByKey;

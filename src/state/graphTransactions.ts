@@ -6,8 +6,12 @@ import type { GraphAction } from "./graphActions";
 import type { GraphAppState } from "./initialState";
 
 /** Validate the entire edit before publishing one undoable transaction. */
-export function prepareCommandTransaction(state: GraphAppState, commands: GraphCommand[], label: string,
-  selection = state.selection) {
+export function prepareCommandTransaction(
+  state: GraphAppState,
+  commands: GraphCommand[],
+  label: string,
+  selection = state.selection,
+) {
   if (!state.dag) throw new Error("No graph loaded.");
   let dag = state.dag;
   const results = commands.map((command) => {

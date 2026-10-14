@@ -8,6 +8,7 @@ import type { GraphTransactionsController } from "../controllers/useGraphTransac
 import type { GraphViewportController } from "../controllers/useGraphViewport";
 import type { NodeActionsController } from "../controllers/useNodeActions";
 import { getSankeyError } from "../graph/sankey";
+import { getTimelineReferenceTime } from "../graph/timelineEditing";
 import ConsoleSidebar from "./ConsoleSidebar";
 import CompoundPanel from "./CompoundPanel";
 import ContextMenu from "./ContextMenu";
@@ -89,6 +90,21 @@ export default function StudioView({
         typeOptions={viewport.typeOptions}
         selectedType={viewport.activeType}
         onTypeChange={viewport.changeType}
+        timeline={
+          state.chartType === "timeline"
+            ? {
+                tracks: viewport.trackOptions,
+                selectedTrack: viewport.activeTrack,
+                onTrackChange: viewport.changeTrack,
+                range: viewport.activeTimelineRange,
+                onRangeChange: viewport.changeTimelineRange,
+                canLocate: Boolean(viewport.focusedKey && viewport.stage?.nodeMap[viewport.focusedKey]),
+                onLocate: () => {
+                  if (viewport.focusedKey) viewport.zoom.locateNode(viewport.focusedKey);
+                },
+              }
+            : undefined
+        }
         canBack={viewport.canBack}
         canUp={viewport.canUp}
         canUndo={transactions.canUndo}
@@ -124,6 +140,7 @@ export default function StudioView({
                 onCommand={transactions.commitCommand}
                 onSelect={viewport.setFocusedKey}
                 onOpenNode={session.openNodeDetail}
+                onMemberContextMenu={viewport.handleNodeContextMenu}
               />
             ) : undefined
           }
@@ -139,7 +156,17 @@ export default function StudioView({
             ) : null
           }
           emptyContent={
-            state.chartType === "compound" && state.dag && !viewport.stage ? (
+            state.chartType === "timeline" &&
+            state.dag &&
+            !viewport.stage &&
+            (viewport.activeType || viewport.activeTrack || viewport.activeTimelineRange) ? (
+              <div className="compound-loading" role="status">
+                <p>{viewport.status}</p>
+                <button className="studio-button" onClick={viewport.showAll}>
+                  Show all events
+                </button>
+              </div>
+            ) : state.chartType === "compound" && state.dag && !viewport.stage ? (
               <div className="compound-loading" role={viewport.compoundLayout.error ? "alert" : "status"}>
                 {viewport.status}
               </div>
@@ -177,6 +204,7 @@ export default function StudioView({
           onInitializeCanvas={session.initializeCanvas}
           focusedKey={viewport.focusedKey}
           hideNodeBorders={session.hideNodeBorders}
+          onTimelineNodePin={viewport.pinTimelineNode}
           onNodeClick={viewport.handleNodeClick}
           onNodeDoubleClick={viewport.handleNodeDoubleClick}
           onNodeContextMenu={viewport.handleNodeContextMenu}
@@ -192,6 +220,11 @@ export default function StudioView({
         chartType={state.chartType}
         sankeyUnavailableReason={sankeyUnavailableReason}
         onChartTypeChange={session.changeChartType}
+        timelineControls={{
+          settings: viewport.timelineSettings,
+          onChange: viewport.changeTimelineSettings,
+          onReadapt: viewport.readaptTimeline,
+        }}
         layoutMode={state.layout.mode}
         appearance={appearance}
         showNodeDetail={session.showNodeDetail}
@@ -209,8 +242,14 @@ export default function StudioView({
         onAppearanceCssVarChange={appearanceHistory.handleAppearanceCssVarChange}
         onAppearanceCssChange={appearanceHistory.handleAppearanceCssChange}
         onAppearanceDisplayChange={appearanceHistory.handleAppearanceDisplayChange}
-        onAppearancePresetChange={appearanceHistory.handleAppearancePresetChange}
-        onAppearanceReset={appearanceHistory.handleAppearanceReset}
+        onAppearancePresetChange={(presetId) => {
+          appearanceHistory.handleAppearancePresetChange(presetId);
+          if (presetId === "default" && !session.hideNodeBorders) session.toggleNodeBorders();
+        }}
+        onAppearanceReset={() => {
+          appearanceHistory.handleAppearanceReset();
+          if (!session.hideNodeBorders) session.toggleNodeBorders();
+        }}
         onAppearanceExport={appearanceHistory.handleAppearanceExport}
         onAppearanceImportClick={appearanceHistory.handleAppearanceImportClick}
         onAppearanceImportChange={appearanceHistory.handleAppearanceImportChange}
@@ -223,10 +262,22 @@ export default function StudioView({
         onAiSettingsChange={session.setAiSettings}
         onAiConnectionTest={ai.testConnection}
       />
-      <ContextMenu menu={state.ui.contextMenu} dag={state.dag} chartType={state.chartType}
-        view={viewport.compound.view} onAction={nodeActions.handleContextMenuAction} onClose={session.closeContextMenu} />
-      {nodeActions.hierarchyEdit && state.dag && <HierarchyEditorModal edit={nodeActions.hierarchyEdit} dag={state.dag}
-        onSave={transactions.commitCommands} onClose={nodeActions.closeHierarchyEditor} />}
+      <ContextMenu
+        menu={state.ui.contextMenu}
+        dag={state.dag}
+        chartType={state.chartType}
+        view={viewport.compound.view}
+        onAction={nodeActions.handleContextMenuAction}
+        onClose={session.closeContextMenu}
+      />
+      {nodeActions.hierarchyEdit && state.dag && (
+        <HierarchyEditorModal
+          edit={nodeActions.hierarchyEdit}
+          dag={state.dag}
+          onSave={transactions.commitCommands}
+          onClose={nodeActions.closeHierarchyEditor}
+        />
+      )}
       <RelationEditorModal
         open={Boolean(relationEditor)}
         nodeKey={relationEditor?.nodeKey || null}
@@ -239,9 +290,11 @@ export default function StudioView({
       />
       <NodeDetailModal
         open={Boolean(detailNodeKey)}
+        graph={state.dag}
         nodeKey={detailNodeKey}
         node={detailNodeKey && state.dag ? state.dag.nodes[detailNodeKey] || null : null}
-
+        timeline={state.chartType === "timeline"}
+        timelineReferenceTime={getTimelineReferenceTime(state.dag)}
         initialFocus={session.nodeDetailInitialFocus}
         relativeLinkRoot={relativeLinkRoot}
         onOpenRelativeLink={session.handleOpenRelativeLink}

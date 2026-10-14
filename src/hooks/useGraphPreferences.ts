@@ -20,6 +20,7 @@ export function useGraphPreferences({
 }) {
   useEffect(() => {
     saveGraphPagePreferences({
+      timelineSettings: { ...state.timelineSettings, pins: {}, locked: false },
       mode: state.mode,
       chartType: state.chartType,
       layoutMode: state.layout.mode,
@@ -27,6 +28,7 @@ export function useGraphPreferences({
         "node-link": { ...displayByChart["node-link"], appearance: appearanceByChart["node-link"] },
         sankey: { ...displayByChart.sankey, appearance: appearanceByChart.sankey },
         compound: { ...displayByChart.compound, appearance: appearanceByChart.compound },
+        timeline: { ...displayByChart.timeline, appearance: appearanceByChart.timeline },
       },
       consoleSidebarOpen: state.ui.consoleSidebarOpen,
       consoleSidebarWidth: state.ui.consoleSidebarWidth,
@@ -37,6 +39,7 @@ export function useGraphPreferences({
     appearanceByChart,
     displayByChart,
     state.chartType,
+    state.timelineSettings,
     state.layout.mode,
     state.mode,
     state.ui.consoleSidebarOpen,

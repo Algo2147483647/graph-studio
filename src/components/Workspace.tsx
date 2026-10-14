@@ -23,6 +23,7 @@ interface WorkspaceProps {
   onInitializeCanvas: () => void;
   focusedKey: string | null;
   hideNodeBorders: boolean;
+  onTimelineNodePin?: (key: string, x: number) => void;
   onNodeClick: (key: string) => void;
   onNodeDoubleClick: (key: string) => void;
   onNodeContextMenu: (event: React.MouseEvent<SVGGElement>, key: string) => void;
@@ -47,6 +48,7 @@ export default function Workspace({
   onInitializeCanvas,
   focusedKey,
   hideNodeBorders,
+  onTimelineNodePin,
   onNodeClick,
   onNodeDoubleClick,
   onNodeContextMenu,
@@ -102,6 +104,21 @@ export default function Workspace({
             aria-live="polite"
             onScroll={onScroll}
             onContextMenu={onBackgroundContextMenu}
+            onClick={(event) => {
+              if (
+                event.defaultPrevented ||
+                (event.target instanceof Element &&
+                  event.target.closest(".dag-node, .dag-group-controls, button, a, input, select, textarea"))
+              )
+                return;
+              const active = document.activeElement;
+              if (
+                (active instanceof HTMLElement || active instanceof SVGElement) &&
+                event.currentTarget.contains(active)
+              )
+                active.blur();
+              onFocusChange(null);
+            }}
           >
             {stage ? (
               <GraphStage
@@ -112,6 +129,7 @@ export default function Workspace({
                 hideNodeBorders={hideNodeBorders}
                 appearance={appearance}
                 svgRef={svgRef}
+                onTimelineNodePin={onTimelineNodePin}
                 onNodeClick={onNodeClick}
                 onNodeDoubleClick={onNodeDoubleClick}
                 onNodeContextMenu={onNodeContextMenu}
