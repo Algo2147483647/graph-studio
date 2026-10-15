@@ -1,5 +1,15 @@
 # 科技与工程
 
+[元明清专题](./yuan-qing.md) · [条目与史料](./yuan-qing-catalog.md)
+
+[隋唐到南宋末专题](./tang-song.md) · [条目与史料](./tang-song-catalog.md)
+
+[晋到南北朝隋专题](./jin-sui.md) · [条目与史料](./jin-sui-catalog.md)
+
+[汉武帝到三国专题](./han-three.md) · [条目与史料](./han-three-catalog.md)
+
+[二里头、商与西周专题](./pre-zhou.md) · [条目与史料](./pre-zhou-catalog.md)
+
 [春秋到汉初专题](./early-china.md) · [新增条目与史料](./early-catalog.md)
 
 造纸、运河、印刷与宫殿建筑；技术采用往往是长期过程。
@@ -20,17 +30,17 @@
 
 **105年 · 东汉**
 
-以105年记述的改进为节点；纸的出现早于蔡伦，不称其为唯一发明者。
+《宦者列传》在元兴元年记蔡伦奏上所造之纸。造纸早已有实践，此点是工艺改进和推广的记载，不能称蔡伦在105年第一次发明纸，或说竹木简随即退出使用。
 
-[中国科学技术馆：蔡伦像](https://www.cdstm.cn/museum/zphc/zgsgzzdjy/art/2020/art_6211a1fae373495aaf472d8f078a6457.html) · [大都会艺术博物馆：公元1—500年的中国](https://www.metmuseum.org/toah/ht/05/eac.html)
+[《後漢書·宦者列传》](https://zh.wikisource.org/wiki/後漢書/卷78)
 
 ## 隋代运河主要工程
 
 **605年—610年 · 隋**
 
-通济渠、永济渠和江南河等工程陆续开通；不将此前已有水道归为同期新建。
+605至610年通济渠、永济渠、江南河等工程陆续展开，各次工程另有点事件。隋改造并利用既有河网，水运促进交通和国家调运，也带来沉重劳役；不是全部线路都在同一年从零新建。
 
-[学术研究：Money, Markets, and Merchants（隋代运河图）](https://yohey.w.waseda.jp/wp-content/uploads/2024/04/shizhao202211.pdf) · [联合国教科文组织：大运河](https://whc.unesco.org/en/list/1443/)
+[《隋書·炀帝纪上》](https://zh.wikisource.org/wiki/隋書/卷03)
 
 ## 毕昇活字印刷（记载年代范围）
 

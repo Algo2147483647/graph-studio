@@ -1,10 +1,10 @@
-import type { WorkspaceControls } from "../../hooks/useGraphImport";
-import WorkspaceIcon from "./WorkspaceIcon";
+import Icon from "../ui/Icon";
+import type { WorkspaceControls } from "../../controllers/workspaceControls";
 export default function WorkspaceOverview({ files }: { files: WorkspaceControls }) {
   const workspace = files.workspace!;
   return (
     <section className="workspace-overview">
-      <WorkspaceIcon name="folder" size={42} />
+      <Icon name="folder" size={42} />
       <p className="eyebrow">WORKSPACE</p>
       <h1>{workspace.name}</h1>
       <p>

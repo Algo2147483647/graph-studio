@@ -1,17 +1,23 @@
-import { useMemo, useState } from "react";
-import type { WorkspaceControls } from "../../hooks/useGraphImport";
-import WorkspaceIcon from "./WorkspaceIcon";
+import IconButton from "../ui/IconButton";
+import InlineNameForm from "../ui/InlineNameForm";
+import Icon from "../ui/Icon";
+import { type ReactNode, useMemo, useState } from "react";
+import type { WorkspaceControls } from "../../controllers/workspaceControls";
 export default function WorkspaceExplorer({
   files,
   onOpenAsset,
   dirty,
+  children,
 }: {
   files: WorkspaceControls;
   onOpenAsset: (path: string) => void;
   dirty: boolean;
+  children?: ReactNode;
 }) {
   const [query, setQuery] = useState("");
+  const [creating, setCreating] = useState(false);
   const workspace = files.workspace!;
+  const canCreate = Boolean(workspace.handle?.getFileHandle && workspace.handle?.removeEntry);
   const graphs = workspace.graphs.filter((graph) =>
     `${graph.path} ${graph.title}`.toLowerCase().includes(query.toLowerCase()),
   );
@@ -23,28 +29,38 @@ export default function WorkspaceExplorer({
   return (
     <aside className="workspace-explorer" aria-label="Workspace explorer">
       <div className="explorer-heading">
-        <span>EXPLORER</span>
-        <div>
-          <button
-            title="Refresh workspace files"
-            aria-label="Refresh workspace files"
+        <div className="explorer-workspace">
+          <Icon name="folder" size={18} />
+          <strong title={workspace.name}>{workspace.name}</strong>
+        </div>
+        <div className="explorer-actions">
+          <IconButton
+            variant="quiet"
+            label="Create graph file"
+            disabled={files.busy}
+            ariaExpanded={creating}
+            onClick={() => setCreating((value) => !value)}
+            icon={<Icon name="plus" size={16} />}
+          />
+          <IconButton
+            variant="quiet"
+            label="Refresh workspace files"
             disabled={files.busy}
             onClick={files.refreshWorkspace}
-          >
-            <WorkspaceIcon name="refresh" size={16} />
-          </button>
-          <button title="Hide explorer" aria-label="Hide explorer" onClick={() => files.setExplorerOpen(false)}>
-            <WorkspaceIcon name="panel" size={16} />
-          </button>
+            icon={<Icon name="refresh" size={16} />}
+          />
+          <IconButton
+            variant="quiet"
+            label="Hide explorer"
+            onClick={() => files.setExplorerOpen(false)}
+            icon={<Icon name="panel" size={16} />}
+          />
         </div>
       </div>
-      <div className="explorer-workspace">
-        <WorkspaceIcon name="folder" />
-        <strong title={workspace.name}>{workspace.name}</strong>
-      </div>
       <label className="explorer-search">
-        <WorkspaceIcon name="search" size={15} />
+        <Icon name="search" size={15} />
         <input
+          className="inline-input"
           aria-label="Find workspace files"
           placeholder="Find a file…"
           value={query}
@@ -55,6 +71,29 @@ export default function WorkspaceExplorer({
         <h3>
           Graphs <span>{workspace.graphs.length}</span>
         </h3>
+        {creating &&
+          (canCreate ? (
+            <InlineNameForm
+              label="Create graph file"
+              inputLabel="New graph file"
+              icon={<Icon name="graph" size={17} />}
+              placeholder="New graph.json"
+              busy={files.busy}
+              onCancel={() => setCreating(false)}
+              onSubmit={async (name) => {
+                const created = await files.createGraph(name);
+                if (created) setQuery("");
+                return created;
+              }}
+            />
+          ) : (
+            <div className="explorer-create-unavailable">
+              <p>Open a local workspace to create files.</p>
+              <button className="studio-button" disabled={files.busy} onClick={files.openWorkspace}>
+                Open workspace
+              </button>
+            </div>
+          ))}
         {graphs.map((graph) => (
           <button
             key={graph.path}
@@ -64,7 +103,7 @@ export default function WorkspaceExplorer({
             onClick={() => files.openWorkspaceGraph(graph.path)}
             title={graph.error || `${graph.path} · ${graph.nodeCount} nodes · ${graph.edgeCount} edges`}
           >
-            <WorkspaceIcon name="graph" size={17} />
+            <Icon name="graph" size={17} />
             <span>
               <strong>{graph.title}</strong>
               <small>{graph.path}</small>
@@ -85,12 +124,13 @@ export default function WorkspaceExplorer({
           </summary>
           {matchingAssets.slice(0, 200).map((path) => (
             <button key={path} className="explorer-file asset-file" title={path} onClick={() => onOpenAsset(path)}>
-              <WorkspaceIcon name="file" size={16} />
+              <Icon name="file" size={16} />
               <span>{path}</span>
             </button>
           ))}
           {matchingAssets.length > 200 && <p className="explorer-empty">Refine your search to see more files.</p>}
         </details>
+        {children}
       </div>
       <footer>
         <span className="workspace-detection-dot" />

@@ -1,7 +1,12 @@
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { canOverwrite } from "../adapters/fileAccess";
 import type { AiController } from "../controllers/useAiController";
-import type { AppearanceHistoryController } from "../controllers/useAppearanceHistory";
+import type { PreferencesController } from "../controllers/usePreferencesController";
+import type { WorkspaceControls } from "../controllers/workspaceControls";
+import type { StudioUiController } from "../controllers/useStudioUi";
+import { useWorkspacePreview } from "../controllers/useWorkspacePreview";
+import { useSidebarResize } from "../hooks/useSidebarResize";
+import { downloadSvg } from "../rendering/export-svg";
 import type { ConsoleController } from "../controllers/useConsoleController";
 import type { DocumentSessionController } from "../controllers/useDocumentSession";
 import type { GraphTransactionsController } from "../controllers/useGraphTransactions";
@@ -26,7 +31,10 @@ import WorkspaceOverview from "./workspace/WorkspaceOverview";
 
 interface StudioViewProps {
   session: DocumentSessionController;
-  appearanceHistory: AppearanceHistoryController;
+  preferences: PreferencesController;
+  ui: StudioUiController;
+  files: WorkspaceControls;
+  onInitializeCanvas(): void;
   transactions: GraphTransactionsController;
   consoleController: ConsoleController;
   ai: AiController;
@@ -36,18 +44,32 @@ interface StudioViewProps {
 
 export default function StudioView({
   session,
-  appearanceHistory,
+  preferences,
+  ui,
+  files,
+  onInitializeCanvas,
   transactions,
   consoleController,
   ai,
   viewport,
   nodeActions,
 }: StudioViewProps) {
-  const { state, files, filePreview, relativeLinkRoot } = session;
-  useEffect(() => {
-    if (state.chartType === "compound") files.setExplorerOpen(false);
-  }, [state.chartType, state.document.generation]);
+  const { state, dispatch } = session;
+  const preview = useWorkspacePreview(files, dispatch);
+  const { filePreview, relativeLinkRoot } = preview;
+  const { charts: appearanceHistory } = preferences;
   const { appearance } = appearanceHistory;
+  const resizeSidebar = useSidebarResize(state.ui.consoleSidebarWidth, (width) =>
+    dispatch({ type: "consoleSidebarWidthChanged", width }),
+  );
+  function exportSvg() {
+    if (!viewport.svgRef.current) {
+      dispatch({ type: "statusChanged", status: "Render a DAG first, then export the SVG." });
+      return;
+    }
+    downloadSvg(viewport.svgRef.current);
+    dispatch({ type: "statusChanged", status: "Exported current view as dag-graph.svg." });
+  }
   const relationEditor = state.ui.relationEditor;
   const detailNodeKey = state.ui.nodeDetail?.nodeKey || null;
   const consoleSidebarVisible = state.ui.consoleSidebarOpen;
@@ -55,9 +77,22 @@ export default function StudioView({
     () => (state.dag ? getSankeyError(state.dag.nodes, state.dag.edges) : null),
     [state.dag],
   );
+  const compoundPanel =
+    state.chartType === "compound" && state.dag ? (
+      <CompoundPanel
+        key={state.document.generation}
+        dag={state.dag}
+        view={viewport.compound.view}
+        onViewChange={viewport.compound.setView}
+        onCommand={transactions.commitCommand}
+        onSelect={viewport.setFocusedKey}
+        onOpenNode={ui.openNodeDetail}
+        onMemberContextMenu={viewport.handleNodeContextMenu}
+      />
+    ) : null;
 
   return (
-    <div className="app-shell" onDragOver={session.handleAppDragOver} onDrop={session.handleAppDrop}>
+    <div className="app-shell" onDragOver={preview.handleAppDragOver} onDrop={preview.handleAppDrop}>
       <input
         hidden
         type="file"
@@ -122,37 +157,27 @@ export default function StudioView({
         onZoomIn={viewport.zoom.zoomIn}
         onZoomFit={viewport.zoom.zoomFit}
         onZoomPercentCommit={viewport.zoom.setZoomPercent}
-        onSettingsToggle={session.toggleSettings}
+        onSettingsToggle={ui.toggleSettings}
         onSaveJson={session.requestSave}
       />
 
       {files.homeVisible ? (
-        <WelcomeScreen files={files} onNew={session.initializeCanvas} hasDocument={Boolean(state.dag)} />
+        <WelcomeScreen files={files} onNew={onInitializeCanvas} hasDocument={Boolean(state.dag)} />
       ) : (
         <Workspace
-          compoundTools={
-            state.chartType === "compound" && state.dag && !files.explorerOpen ? (
-              <CompoundPanel
-                key={state.document.generation}
-                dag={state.dag}
-                view={viewport.compound.view}
-                onViewChange={viewport.compound.setView}
-                onCommand={transactions.commitCommand}
-                onSelect={viewport.setFocusedKey}
-                onOpenNode={session.openNodeDetail}
-                onMemberContextMenu={viewport.handleNodeContextMenu}
-              />
-            ) : undefined
-          }
+          compoundTools={!files.workspace || !files.explorerOpen ? compoundPanel : undefined}
           onGroupToggle={viewport.toggleGroup}
           onGroupEnter={viewport.enterGroup}
           explorer={
             files.workspace && files.explorerOpen ? (
               <WorkspaceExplorer
+                key={files.workspace.locationId}
                 files={files}
                 dirty={state.source.dirty}
-                onOpenAsset={(path) => void session.handleOpenRelativeLink(path, "")}
-              />
+                onOpenAsset={(path) => void preview.handleOpenRelativeLink(path, "")}
+              >
+                {compoundPanel}
+              </WorkspaceExplorer>
             ) : null
           }
           emptyContent={
@@ -201,17 +226,17 @@ export default function StudioView({
           sidebarOpen={consoleSidebarVisible}
           sidebarWidth={state.ui.consoleSidebarWidth}
           appearance={appearance}
-          onInitializeCanvas={session.initializeCanvas}
+          onInitializeCanvas={onInitializeCanvas}
           focusedKey={viewport.focusedKey}
-          hideNodeBorders={session.hideNodeBorders}
+          hideNodeBorders={appearanceHistory.hideNodeBorders}
           onTimelineNodePin={viewport.pinTimelineNode}
           onNodeClick={viewport.handleNodeClick}
           onNodeDoubleClick={viewport.handleNodeDoubleClick}
           onNodeContextMenu={viewport.handleNodeContextMenu}
           onBackgroundContextMenu={viewport.handleBackgroundContextMenu}
           onFocusChange={viewport.setFocusedKey}
-          onScroll={session.closeContextMenu}
-          onSidebarResizeStart={viewport.handleConsoleSidebarResizeStart}
+          onScroll={ui.closeContextMenu}
+          onSidebarResizeStart={resizeSidebar}
         />
       )}
 
@@ -219,7 +244,7 @@ export default function StudioView({
         open={state.ui.settingsOpen}
         chartType={state.chartType}
         sankeyUnavailableReason={sankeyUnavailableReason}
-        onChartTypeChange={session.changeChartType}
+        onChartTypeChange={ui.changeChartType}
         timelineControls={{
           settings: viewport.timelineSettings,
           onChange: viewport.changeTimelineSettings,
@@ -227,39 +252,39 @@ export default function StudioView({
         }}
         layoutMode={state.layout.mode}
         appearance={appearance}
-        showNodeDetail={session.showNodeDetail}
-        hideNodeBorders={session.hideNodeBorders}
-        alignNodeWidthsToMax={session.alignNodeWidthsToMax}
+        showNodeDetail={appearanceHistory.showNodeDetail}
+        hideNodeBorders={appearanceHistory.hideNodeBorders}
+        alignNodeWidthsToMax={appearanceHistory.alignNodeWidthsToMax}
         fileName={state.source.fileName}
         files={files}
         hasGraph={Boolean(state.dag)}
         consoleSidebarOpen={consoleSidebarVisible}
-        aiSettings={session.aiSettings}
+        aiSettings={preferences.aiSettings}
         aiBusy={ai.busy}
-        onClose={session.toggleSettings}
-        onLayoutModeChange={session.changeLayout}
+        onClose={ui.toggleSettings}
+        onLayoutModeChange={ui.changeLayout}
         onLayoutAppearanceChange={appearanceHistory.handleLayoutAppearanceChange}
         onAppearanceCssVarChange={appearanceHistory.handleAppearanceCssVarChange}
         onAppearanceCssChange={appearanceHistory.handleAppearanceCssChange}
         onAppearanceDisplayChange={appearanceHistory.handleAppearanceDisplayChange}
         onAppearancePresetChange={(presetId) => {
           appearanceHistory.handleAppearancePresetChange(presetId);
-          if (presetId === "default" && !session.hideNodeBorders) session.toggleNodeBorders();
+          if (presetId === "default" && !appearanceHistory.hideNodeBorders) appearanceHistory.toggleNodeBorders();
         }}
         onAppearanceReset={() => {
           appearanceHistory.handleAppearanceReset();
-          if (!session.hideNodeBorders) session.toggleNodeBorders();
+          if (!appearanceHistory.hideNodeBorders) appearanceHistory.toggleNodeBorders();
         }}
         onAppearanceExport={appearanceHistory.handleAppearanceExport}
         onAppearanceImportClick={appearanceHistory.handleAppearanceImportClick}
         onAppearanceImportChange={appearanceHistory.handleAppearanceImportChange}
-        onNodeDetailToggle={session.toggleNodeDetail}
-        onNodeBordersToggle={session.toggleNodeBorders}
-        onNodeWidthAlignToggle={session.toggleNodeWidthAlign}
-        onConsoleSidebarToggle={session.toggleConsole}
-        onInitializeCanvas={session.initializeCanvas}
-        onExport={viewport.handleExportSvg}
-        onAiSettingsChange={session.setAiSettings}
+        onNodeDetailToggle={appearanceHistory.toggleNodeDetail}
+        onNodeBordersToggle={appearanceHistory.toggleNodeBorders}
+        onNodeWidthAlignToggle={appearanceHistory.toggleNodeWidthAlign}
+        onConsoleSidebarToggle={ui.toggleConsole}
+        onInitializeCanvas={onInitializeCanvas}
+        onExport={exportSvg}
+        onAiSettingsChange={preferences.setAiSettings}
         onAiConnectionTest={ai.testConnection}
       />
       <ContextMenu
@@ -268,7 +293,7 @@ export default function StudioView({
         chartType={state.chartType}
         view={viewport.compound.view}
         onAction={nodeActions.handleContextMenuAction}
-        onClose={session.closeContextMenu}
+        onClose={ui.closeContextMenu}
       />
       {nodeActions.hierarchyEdit && state.dag && (
         <HierarchyEditorModal
@@ -286,7 +311,7 @@ export default function StudioView({
         node={relationEditor && state.dag ? state.dag.nodes[relationEditor.nodeKey] || null : null}
         sankey={state.dag?.diagram === "sankey"}
         onSave={nodeActions.saveRelations}
-        onClose={session.closeModals}
+        onClose={ui.closeModals}
       />
       <NodeDetailModal
         open={Boolean(detailNodeKey)}
@@ -295,12 +320,12 @@ export default function StudioView({
         node={detailNodeKey && state.dag ? state.dag.nodes[detailNodeKey] || null : null}
         timeline={state.chartType === "timeline"}
         timelineReferenceTime={getTimelineReferenceTime(state.dag)}
-        initialFocus={session.nodeDetailInitialFocus}
+        initialFocus={ui.nodeDetailInitialFocus}
         relativeLinkRoot={relativeLinkRoot}
-        onOpenRelativeLink={session.handleOpenRelativeLink}
-        onRelativeLinkError={session.handleRelativeLinkError}
+        onOpenRelativeLink={preview.handleOpenRelativeLink}
+        onRelativeLinkError={preview.handleRelativeLinkError}
         onSave={nodeActions.saveNode}
-        onClose={session.closeModals}
+        onClose={ui.closeModals}
       />
       <FilePreviewModal
         preview={filePreview}
@@ -309,9 +334,9 @@ export default function StudioView({
             ? { ...relativeLinkRoot, baseFile: filePreview.relativePath }
             : relativeLinkRoot
         }
-        onOpenRelativeLink={(url) => void session.handleOpenRelativeLink(url, filePreview?.relativePath)}
-        onRelativeLinkError={session.handleRelativeLinkError}
-        onClose={session.closeFilePreview}
+        onOpenRelativeLink={(url) => void preview.handleOpenRelativeLink(url, filePreview?.relativePath)}
+        onRelativeLinkError={preview.handleRelativeLinkError}
+        onClose={preview.closeFilePreview}
       />
       <SaveJsonModal
         open={state.ui.saveDialogOpen}
@@ -321,7 +346,7 @@ export default function StudioView({
         currentContent={session.currentJsonContent}
         onOverwrite={session.handleOverwriteJson}
         onSaveNew={session.handleSaveJsonAsNew}
-        onClose={session.closeSaveDialog}
+        onClose={ui.closeSaveDialog}
       />
     </div>
   );

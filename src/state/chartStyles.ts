@@ -7,11 +7,20 @@ export interface ChartDisplayOptions {
   alignNodeWidthsToMax: boolean;
 }
 
-interface ChartStyle extends ChartDisplayOptions {
+export interface ChartStyle extends ChartDisplayOptions {
   appearance: GraphAppearance;
 }
 
 export type ChartStyles = Record<GraphChartType, ChartStyle>;
+
+export function mapChartTypes<T>(create: (type: GraphChartType) => T): Record<GraphChartType, T> {
+  return {
+    "node-link": create("node-link"),
+    sankey: create("sankey"),
+    compound: create("compound"),
+    timeline: create("timeline"),
+  };
+}
 
 export function sanitizeChartStyle(value: unknown): ChartStyle {
   const input = value && typeof value === "object" && !Array.isArray(value) ? (value as Partial<ChartStyle>) : {};
@@ -24,12 +33,7 @@ export function sanitizeChartStyle(value: unknown): ChartStyle {
 }
 
 export function createChartStyles(): ChartStyles {
-  return {
-    "node-link": sanitizeChartStyle(null),
-    sankey: sanitizeChartStyle(null),
-    compound: sanitizeChartStyle(null),
-    timeline: sanitizeTimelineChartStyle(null),
-  };
+  return mapChartTypes((type) => (type === "timeline" ? sanitizeTimelineChartStyle(null) : sanitizeChartStyle(null)));
 }
 
 export function sanitizeTimelineChartStyle(value: unknown): ChartStyle {

@@ -1,5 +1,15 @@
 # 思想与文化
 
+[元明清专题](./yuan-qing.md) · [条目与史料](./yuan-qing-catalog.md)
+
+[隋唐到南宋末专题](./tang-song.md) · [条目与史料](./tang-song-catalog.md)
+
+[晋到南北朝隋专题](./jin-sui.md) · [条目与史料](./jin-sui-catalog.md)
+
+[汉武帝到三国专题](./han-three.md) · [条目与史料](./han-three-catalog.md)
+
+[二里头、商与西周专题](./pre-zhou.md) · [条目与史料](./pre-zhou-catalog.md)
+
 [春秋到汉初专题](./early-china.md) · [新增条目与史料](./early-catalog.md)
 
 从孔子、佛经翻译到典籍编纂和新文化运动，观察文化活动与其他领域的交汇。
@@ -28,9 +38,9 @@
 
 **401年 · 后秦**
 
-鸠摩罗什在后秦支持下开展译经活动，影响汉语佛教文献。
+鸠摩罗什被迎至长安，在后秦支持下与僧人、学者合作译经。401年标记抵达而非全部译作完成；军事竞争、人员迁移和多语合作共同构成译经条件。
 
-[大都会艺术博物馆：公元1—500年的中国](https://www.metmuseum.org/toah/ht/05/eac.html)
+[《晉書·姚兴载记上》](https://zh.wikisource.org/wiki/晉書/卷117)
 
 ## 云冈石窟早期主要营造
 
@@ -118,9 +128,9 @@
 
 **1773年 · 清**
 
-以诏开四库全书馆的年份为节点；整理古籍同时伴随官方筛选与禁毁。
+乾隆命设馆编纂《四库全书》，搜集、校勘和抄录文献，同时开展禁毁、删改。1773年是工程启动节点，不能把全部成书和七阁抄本完成都归于当年。
 
-[故宫博物院：《四库全书》](https://www.dpm.org.cn/lemmas/241812.html)
+[《清史稿》卷14](https://zh.wikisource.org/wiki/清史稿/卷14) · [故宫博物院：《四库全书》](https://www.dpm.org.cn/lemmas/241812.html) · [故宫博物院：《抽毁书目》](https://www.dpm.org.cn/lemmas/244438.html)
 
 ## 京师同文馆设立
 
