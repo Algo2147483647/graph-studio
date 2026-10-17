@@ -1,53 +1,43 @@
 import type { IconName } from "../ui/Icon";
 import type { GraphLayoutAppearance } from "../../graph/appearance";
+import type { GraphChartType } from "../../graph/types";
 
-export type SettingsChapter = "general" | "chart" | "appearance" | "layout" | "ai";
+export type SettingsChapter = "general" | "files" | "chart" | "appearance" | "layout" | "ai";
 
 export const SETTINGS_CHAPTERS: Array<{
   key: SettingsChapter;
   label: string;
-  description: string;
   icon: IconName;
-  keywords: string;
 }> = [
   {
     key: "general",
-    label: "Workspace",
-    description: "Files, folders & recent locations",
+    label: "General",
+    icon: "sliders",
+  },
+  {
+    key: "files",
+    label: "Files",
     icon: "folder",
-    keywords:
-      "open create graph new refresh close current session manifest detection default console svg export import workspace",
   },
   {
     key: "chart",
     label: "Chart type",
-    description: "Node-link, nested subgraphs, Sankey or timeline",
     icon: "graph",
-    keywords:
-      "diagram visualization display node link network sankey flow numeric value nested compound subgraph hierarchy group timeline time date event track duration branch",
   },
   {
     key: "layout",
     label: "Layout",
-    description: "Arrangement & spacing",
     icon: "layout",
-    keywords:
-      "node link sankey flow timeline time date event track duration branch width spacing engine algorithm level bfs sugiyama dagre layered layer node line height width tuning",
   },
   {
     key: "appearance",
     label: "Appearance",
-    description: "Style for each chart type",
     icon: "palette",
-    keywords:
-      "node link sankey flow bands colors typography shadow shadows elevation blur offset opacity depth preset theme simple compact default slate blueprint contrast presentation tokens fill border root edge active title soft text font size bold italic view details descriptions borders width labels edges custom css advanced stylesheet configuration import export reset",
   },
   {
     key: "ai",
     label: "AI assistant",
-    description: "Providers & execution",
     icon: "ai",
-    keywords: "provider model base url api key token temperature temp connection test ask review automatic read edit",
   },
 ];
 
@@ -66,20 +56,35 @@ export interface LayoutControlDefinition {
 }
 
 export const LAYOUT_CONTROLS: LayoutControlDefinition[] = [
-  { key: "columnGap", label: "Layer spacing", min: 48, max: 260, step: 2, unit: "px" },
-  { key: "rowGap", label: "Node spacing", min: 4, max: 140, step: 2, unit: "px" },
-  { key: "edgeLaneGap", label: "Line spacing", min: 4, max: 96, step: 2, unit: "px" },
-  { key: "nodeHeight", label: "Node height", min: 44, max: 160, step: 2, unit: "px" },
-  { key: "maxNodeWidth", label: "Node max width", min: 188, max: 480, step: 4, unit: "px" },
+  { key: "columnGap", label: "Layer spacing", min: 0, max: 260, step: 2, unit: "px" },
+  { key: "rowGap", label: "Node spacing", min: 0, max: 140, step: 2, unit: "px" },
+  { key: "edgeLaneGap", label: "Line spacing", min: 0, max: 96, step: 2, unit: "px" },
+  { key: "nodeHeight", label: "Node height", min: 0, max: 160, step: 2, unit: "px" },
+  { key: "maxNodeWidth", label: "Node max width", min: 0, max: 480, step: 4, unit: "px" },
 ];
 
-export const APPEARANCE_TOKEN_CONTROLS = [
-  { key: "--dag-node-fill", label: "Node Fill" },
-  { key: "--dag-node-border", label: "Node Border" },
-  { key: "--dag-node-border-strong", label: "Root Border" },
-  { key: "--dag-edge", label: "Edge" },
-  { key: "--dag-edge-active", label: "Active Edge" },
-  { key: "--dag-text-strong", label: "Title Text" },
-  { key: "--dag-text-soft", label: "Soft Text" },
-  { key: "--dag-title-font-size", label: "Title Size" },
-] as const;
+export function getLayoutControls(chart: GraphChartType): LayoutControlDefinition[] {
+  return LAYOUT_CONTROLS.filter((control) =>
+    chart === "compound"
+      ? control.key !== "edgeLaneGap"
+      : chart === "timeline" || chart === "sankey"
+        ? ["maxNodeWidth", "nodeHeight", "rowGap"].includes(control.key)
+        : true,
+  ).map((control) => ({
+    ...control,
+    label:
+      chart === "timeline"
+        ? control.key === "maxNodeWidth"
+          ? "Event label width"
+          : control.key === "nodeHeight"
+            ? "Timeline vertical spacing"
+            : "Label spacing"
+        : chart === "sankey"
+          ? control.key === "maxNodeWidth"
+            ? "Label room"
+            : control.key === "nodeHeight"
+              ? "Vertical space per node"
+              : control.label
+          : control.label,
+  }));
+}

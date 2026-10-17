@@ -1,12 +1,12 @@
 # Graph Appearance System
 
-This document describes the CSS-first graph UI configuration system in DAG Studio. It covers the appearance data model, settings UI, console commands, AI integration, persistence, export behavior, and safety rules.
+This document describes the CSS-first graph UI configuration system in Graph Studio. It covers the appearance data model, settings UI, console commands, AI integration, persistence, export behavior, and safety rules.
 
 For graph JSON shape, see [Data Format Guide](data-format.md). For console syntax, see [Graph Console DSL](graph-console-dsl.md).
 
 ## Overview
 
-DAG Studio separates graph data from graph appearance.
+Graph Studio separates graph data from graph appearance.
 
 | Area | Stored In | Purpose |
 | --- | --- | --- |
@@ -87,6 +87,7 @@ Display flags control graph visibility choices that are not layout geometry or r
 | Key | Meaning |
 | --- | --- |
 | `showEdgeLabels` | Whether relation-value edge labels are rendered |
+| `nodeCornerRadius` | Card corner radius, 0–80 px (default 24), capped at half the card's smaller dimension |
 | `nodeShadow` | Enable the two-layer node shadow (default `true`) |
 | `shadowBlur` | Diffuse shadow softness, 0–32 px (default 8) |
 | `shadowOffset` | Vertical shadow distance, 0–16 px (default 3) |
@@ -95,6 +96,8 @@ Display flags control graph visibility choices that are not layout geometry or r
 | `sankeyLinkOpacity` | Flow-band opacity, 5–90 percent (default 32) |
 
 Use **Settings → Appearance → Node shadows** for live shadow controls, and **Settings → Layout → Sankey flows** for flow styling. All values persist in browser preferences and appearance JSON. Older appearance configurations receive defaults for new fields. Shadow controls take precedence over custom CSS filters; dense graphs omit shadows for performance. Exported SVG retains the rendered styles and flow geometry.
+
+**Settings → Appearance → Node shape → Corner radius** controls ordinary node cards and collapsed subgraph cards. Zero produces square corners. The value is saved independently for Node-link and Nested node-link and is included in appearance import/export and rendered SVG. Changing it does not re-layout the graph or move edge endpoints. Expanded container frames, Sankey bars and timeline markers have separate shapes.
 
 Ordinary node cards use an opaque pure-white fill (`#ffffff`) by default, so the shadow beneath a node cannot tint its surface. Saved configurations using the old translucent default are migrated to white. Shadow softness, distance and opacity adjust only the projection; node color remains a separate setting.
 
@@ -153,7 +156,13 @@ Example:
 
 ## Settings UI
 
-The settings dialog has an `Appearance` tab for graph UI configuration.
+The settings dialog separates `Layout` (arrangement and dimensions) from `Appearance` (paint and typography). Both chapters share a live sample preview. `Appearance` has five groups: Presets, Nodes, Edges, Text and Advanced. File operations are collected under `Files`; AI execution and generation options are collapsed below the connection settings.
+
+Search keeps the navigation visible with per-section result counts and filters individual appearance and dimension controls. Common Chinese aliases are supported, for example `圆角`. Escape clears a search before closing the dialog.
+
+Numeric controls share a slider, editable value, unit and individual reset. Blue dots indicate values different from the default. Color controls support a picker, HEX/RGB(A) text and opacity; invalid text stays in the field with an error and does not update the graph. Node, edge, text and dimension styles can be reset separately. Section resets preserve custom CSS and other sections. Display options such as descriptions and equal widths retain their separate behavior.
+
+The footer reports whether browser preferences were saved successfully and provides appearance-only Undo/Redo. CSS drafts are explicitly applied and are marked as unapplied until then.
 
 | Section | Purpose |
 | --- | --- |
@@ -229,6 +238,25 @@ Graph edits and appearance edits have separate histories. The toolbar `Undo` and
 
 Appearance history records changes from settings controls, presets, reset, and console style commands.
 
+A slider drag or a held adjustment key records one appearance undo step when the gesture ends. Number fields commit on Enter or blur; incomplete input does not repeatedly resize the graph. Timeline view settings retain their existing history behavior.
+
+## Live Preview
+
+`Layout` and `Appearance` use the same `GraphStage` renderer and layout functions as the main canvas. The preview remains available while searching those chapters or scrolling their controls. It sits beside the controls in wide dialogs; narrow dialogs offer a collapsible preview above the controls. Overview shows the graph, while Detail frames a real sample node for inspecting shape, color and text.
+
+| Chart | Sample coverage |
+| --- | --- |
+| Node-link | All three layout engines, labels, arrows, branches and a return edge |
+| Nested node-link | Expanded and collapsed groups, aggregated edges, cross-group edges and group focus |
+| Sankey | Weighted bands and a return flow |
+| Timeline | Dated events, a duration and multiple tracks; track and relation-flow arrangements |
+
+Zoom buttons change magnification relative to the fitted view. `Fit` restores the overview; `Expand preview` gives the preview the controls' space. `Reset sample` restores the sample's group expansion, focus and zoom. Group interactions affect only the sample. Current-document timeline pins are not copied into sample data.
+
+Paint changes render immediately. Geometry changes are debounced by 150 ms in both preview and main canvas; nested layout continues to use its worker and discards obsolete results. The preview measures rendered bounds, including text, and allows scrolling after zooming in. It has its own iframe document so custom graph CSS and SVG definitions cannot collide with the settings dialog or main graph.
+
+Controls that the selected chart does not use are omitted. Nested layout does not expose edge-lane spacing; Sankey and timeline expose only relevant dimensions. Timeline also omits card shadows, borders and title controls that its event renderer does not use.
+
 ## Sanitization Rules
 
 Appearance is sanitized at every load or mutation boundary.
@@ -251,8 +279,9 @@ These rules keep appearance editable while preventing malformed stored preferenc
 | Appearance commands and presets | [`src/graph/appearanceCommands.ts`](../src/graph/appearanceCommands.ts) |
 | Console parsing | [`src/console/dsl.ts`](../src/console/dsl.ts) |
 | Console execution | [`src/console/executor.ts`](../src/console/executor.ts) |
-| App-level appearance history and export | [`src/App.tsx`](../src/App.tsx) |
-| Settings UI | [`src/components/Topbar.tsx`](../src/components/Topbar.tsx) |
+| Appearance preferences and undo | [`src/state/chartPreferences.ts`](../src/state/chartPreferences.ts), [`src/controllers/useChartPreferences.ts`](../src/controllers/useChartPreferences.ts) |
+| Settings UI | [`src/components/settings/SettingsModal.tsx`](../src/components/settings/SettingsModal.tsx) |
+| Shared live preview and samples | [`src/components/settings/AppearancePreview.tsx`](../src/components/settings/AppearancePreview.tsx), [`src/components/settings/previewModel.ts`](../src/components/settings/previewModel.ts) |
 | SVG rendering | [`src/rendering/GraphStage.tsx`](../src/rendering/GraphStage.tsx) |
 | SVG export | [`src/rendering/export-svg.ts`](../src/rendering/export-svg.ts) |
 | AI context and validation | [`src/ai/context.ts`](../src/ai/context.ts), [`src/ai/harness.ts`](../src/ai/harness.ts) |

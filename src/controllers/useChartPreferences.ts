@@ -1,17 +1,15 @@
 import { type Dispatch, useCallback, useMemo, useReducer } from "react";
 import { buildTimestampFileName, downloadJsonFile } from "../adapters/download";
 import { openJsonFileWithAccess, readJsonFile } from "../adapters/fileAccess";
-import {
-  type GraphAppearance,
-  type GraphLayoutAppearance,
-  DEFAULT_GRAPH_APPEARANCE,
-  sanitizeGraphAppearance,
-} from "../graph/appearance";
+import { type GraphAppearance, type GraphLayoutAppearance, sanitizeGraphAppearance } from "../graph/appearance";
 import { type GraphAppearancePresetId, applyAppearanceCommand } from "../graph/appearanceCommands";
 import type { GraphChartType } from "../graph/types";
 import { chartPreferencesReducer, createChartPreferences, getChartStyles } from "../state/chartPreferences";
-import { sanitizeTimelineChartStyle, type ChartStyles } from "../state/chartStyles";
+import { parseChartStyleFile, serializeChartStyle } from "../state/chartStyleFile";
+import { getDefaultChartStyle, type ChartStyles } from "../state/chartStyles";
 import type { GraphAction } from "../state/graphActions";
+import { resetAppearanceSection } from "../components/settings/appearanceSections";
+import type { AppearanceGroup } from "../components/settings/settingsCatalog";
 
 export function useChartPreferences(styles: ChartStyles, chartType: GraphChartType, dispatch: Dispatch<GraphAction>) {
   const [histories, updateHistories] = useReducer(chartPreferencesReducer, styles, createChartPreferences);
@@ -20,9 +18,21 @@ export function useChartPreferences(styles: ChartStyles, chartType: GraphChartTy
   const toggleDisplay = (key: "showNodeDetail" | "hideNodeBorders" | "alignNodeWidthsToMax") =>
     updateHistories({ chartType, action: { type: "toggleDisplay", key } });
   const { appearance } = history;
+  const beginAdjustment = useCallback(
+    () => updateHistories({ chartType, action: { type: "beginAdjustment" } }),
+    [chartType],
+  );
+  const endAdjustment = useCallback(
+    () => updateHistories({ chartType, action: { type: "endAdjustment" } }),
+    [chartType],
+  );
   const commitAppearance = useCallback(
-    (nextAppearance: GraphAppearance, label: string) => {
-      updateHistories({ chartType, action: { type: "commit", appearance: nextAppearance, label } });
+    (nextAppearance: GraphAppearance, label: string, resetDisplay = false) => {
+      const { appearance: _appearance, ...display } = getDefaultChartStyle(chartType);
+      updateHistories({
+        chartType,
+        action: { type: "commit", appearance: nextAppearance, label, ...(resetDisplay ? { display } : {}) },
+      });
     },
     [chartType],
   );
@@ -83,21 +93,19 @@ export function useChartPreferences(styles: ChartStyles, chartType: GraphChartTy
 
   function handleAppearancePresetChange(presetId: GraphAppearancePresetId) {
     commitAppearance(
-      applyAppearanceCommand(appearance, { type: "applyPreset", presetId }).appearance,
+      applyAppearanceCommand(appearance, { type: "applyPreset", presetId }, chartType).appearance,
       `Applied ${presetId} appearance preset.`,
+      presetId === "default",
     );
   }
 
   function handleAppearanceReset() {
-    commitAppearance(
-      chartType === "timeline" ? sanitizeTimelineChartStyle(null).appearance : DEFAULT_GRAPH_APPEARANCE,
-      "Reset graph appearance.",
-    );
+    commitAppearance(getDefaultChartStyle(chartType).appearance, "Reset graph appearance.", true);
   }
 
   function handleAppearanceExport() {
     const outputFileName = buildTimestampFileName(`${chartType}-appearance.json`);
-    downloadJsonFile(JSON.stringify(appearance, null, 2), outputFileName);
+    downloadJsonFile(serializeChartStyle(chartType, chartStyles[chartType]), outputFileName);
     dispatch({ type: "statusChanged", status: `Exported current UI appearance as ${outputFileName}.` });
   }
 
@@ -136,15 +144,29 @@ export function useChartPreferences(styles: ChartStyles, chartType: GraphChartTy
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
         throw new Error("Appearance JSON must be an object.");
       }
-      commitAppearance(sanitizeGraphAppearance(payload), `Imported graph appearance from ${file.name}.`);
+      const { appearance: importedAppearance, ...display } = parseChartStyleFile(payload, chartType);
+      updateHistories({
+        chartType,
+        action: {
+          type: "commit",
+          appearance: importedAppearance,
+          display,
+          label: `Imported graph appearance from ${file.name}.`,
+        },
+      });
       dispatch({ type: "statusChanged", status: `Imported UI appearance from ${file.name}.` });
     } catch (error) {
       console.error(error);
-      dispatch({ type: "statusChanged", status: `Unable to import UI appearance from ${file.name}.` });
+      dispatch({
+        type: "statusChanged",
+        status: `Unable to import ${file.name}: ${error instanceof Error ? error.message : "Invalid style file."}`,
+      });
     }
   }
 
   return {
+    beginAdjustment,
+    endAdjustment,
     appearance,
     chartStyles,
     showNodeDetail: history.showNodeDetail,
@@ -164,6 +186,12 @@ export function useChartPreferences(styles: ChartStyles, chartType: GraphChartTy
     handleAppearanceCssChange,
     handleAppearancePresetChange,
     handleAppearanceReset,
+    resetSection: (group: AppearanceGroup | "layout") =>
+      commitAppearance(
+        resetAppearanceSection(appearance, group, getDefaultChartStyle(chartType).appearance),
+        `Reset ${group} style.`,
+        group === "nodes",
+      ),
     handleAppearanceExport,
     handleAppearanceImportClick,
     handleAppearanceImportChange,

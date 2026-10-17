@@ -278,6 +278,7 @@ export default function GraphStage({
       onContextMenu={onBackgroundContextMenu}
     >
       <GraphDefs
+        edgeArrowStyle={appearance.display.edgeArrowStyle}
         appearanceCss={appearance.css}
         timelineColors={Array.from(
           new Set(stage.edges.flatMap((edge) => (edge.timeline ? [edge.timeline.color] : []))),
@@ -298,6 +299,7 @@ export default function GraphStage({
             style={
               {
                 "--dag-group-fill": groupBackgroundFill(group.colorFamilyIndex, group.depth),
+                ...(appearance.display.showGroupBorders ? {} : { stroke: "none" }),
               } as CSSProperties
             }
             x={group.x}
@@ -333,6 +335,8 @@ export default function GraphStage({
           <GraphNode
             key={node.key}
             node={node}
+            showGroupStats={appearance.display.showGroupStats}
+            nodeCornerRadius={appearance.display.nodeCornerRadius}
             isActive={node.key === stage.root}
             onTimelineNodePin={onTimelineNodePin}
             onClick={onNodeClick}
@@ -344,7 +348,13 @@ export default function GraphStage({
       </g>
       <g className="dag-group-headers">
         {stage.groups?.map((group) => (
-          <GroupHeader key={group.id} group={group} onToggle={onGroupToggle} onEnter={onGroupEnter} />
+          <GroupHeader
+            key={group.id}
+            group={group}
+            showStats={appearance.display.showGroupStats}
+            onToggle={onGroupToggle}
+            onEnter={onGroupEnter}
+          />
         ))}
         {stage.nodes
           .filter((node) => node.kind === "group")
@@ -389,10 +399,11 @@ export default function GraphStage({
 }
 
 function resolveNodeKey(target: EventTarget | null): string | null {
-  if (!(target instanceof Element)) {
+  const element = target as Element | null;
+  if (!element || typeof element.closest !== "function") {
     return null;
   }
-  return target.closest<SVGGElement>(".dag-node[data-key]")?.dataset.key || null;
+  return element.closest<SVGGElement>(".dag-node[data-key]")?.dataset.key || null;
 }
 
 function collectNodeElements(svgElement: SVGSVGElement): Map<string, SVGGElement[]> {

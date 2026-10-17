@@ -3,9 +3,9 @@ import { DEFAULT_GRAPH_APPEARANCE } from "../graph/appearance";
 import { getTimelineRelation, parseNodeTimeline, parseTimelineDate, type ParsedTimelineTime } from "../graph/timeline";
 import { collectDescendantKeys } from "../graph/traversal";
 import type { GraphEdge, GraphSelection, NodeKey, NormalizedDag } from "../graph/types";
-import type { StageAppearance } from "./appearance";
+import { stageTitleFont, type StageAppearance } from "./appearance";
 import { resolveStageSelection } from "./selection";
-import { estimateTextWidth, getNodeVisual, wrapDetailText } from "./text";
+import { estimateTextWidth, getNodeVisual, wrapDetailText, measureText, fitMeasuredText } from "./text";
 import type { StageData, StageEdge, StageNode, StageRoutePoint, StageTimelineData } from "./types";
 import {
   getDocumentTimelineSettings,
@@ -20,7 +20,7 @@ import { routeAroundTimelineObstacles, roundedTimelinePath } from "./timeline-ro
 import { packTimelineTrackLabels, timelineLabelBox } from "./timeline-labels";
 
 const DAY = 86_400_000;
-const TRACK_GAP = 44;
+const TRACK_GAP = 79.2;
 
 interface TimelineEntry {
   key: NodeKey;
@@ -67,6 +67,7 @@ export function buildTimelineStage(input: {
     return null;
   const filtered = rangeStart !== undefined || rangeEnd !== undefined;
   const theme = appearance.layout;
+  const titleFont = { ...stageTitleFont(appearance), size: 13, style: "normal" };
   const selection = resolveStageSelection(
     {
       ...dag,
@@ -157,7 +158,7 @@ export function buildTimelineStage(input: {
     start -= DAY / 2;
     end += DAY / 2;
   }
-  const labelWidth = Math.max(140, Math.min(480, theme.maxNodeWidth));
+  const labelWidth = Math.max(0, theme.maxNodeWidth);
   const labelStep = Math.max(showNodeDetail ? 60 : 44, theme.nodeHeight * 0.58 + theme.rowGap * 0.2);
   const trackCounts = new Map<string, number>();
   for (const node of Object.values(input.axisSource?.nodes ?? dag.nodes)) {
@@ -222,7 +223,7 @@ export function buildTimelineStage(input: {
   const topLevel = new Set(selection.topLevelKeys);
   const labelColumns = new Map<string, number>();
   for (const track of tracks) {
-    const channelStep = Math.max(24, (20 + settings.nodeGap) * settings.horizontalSpread);
+    const channelStep = (55.2 + settings.nodeGap) * settings.horizontalSpread;
     const channelsWidth = ((channelCounts.get(track) || 1) - 1) * channelStep;
     const color = trackColor(track);
     const events = entries.filter((entry) => entry.track === track).sort(compareEntries);
@@ -234,7 +235,8 @@ export function buildTimelineStage(input: {
       nodeMap[event.key] = createNode(event, x, labelX, labelY, color);
     }
     const trackNodes = events.map((entry) => nodeMap[entry.key]);
-    const textWidth = Math.max(...trackNodes.map((node) => node.width)) + 44;
+    // Reserve a wider text column without changing the event label's own size.
+    const textWidth = Math.max(...trackNodes.map((node) => node.width)) * 1.8 + 79.2;
     const width = Math.max(
       channelsWidth + textWidth * Math.max(1, settings.horizontalSpread),
       estimateTextWidth(track, 12) + 20,
@@ -363,15 +365,20 @@ export function buildTimelineStage(input: {
   };
 
   function createNode(entry: TimelineEntry, x: number, labelX: number, labelY: number, color: string): StageNode {
-    const visual = getNodeVisual(entry.key, dag.nodes[entry.key], theme.minNodeWidth, labelWidth, showNodeDetail);
+    const visual = getNodeVisual(
+      entry.key,
+      dag.nodes[entry.key],
+      theme.minNodeWidth,
+      labelWidth,
+      showNodeDetail,
+      false,
+      titleFont,
+    );
     const time = entry.time;
     const contentWidth = !showNodeDetail
-      ? Math.min(labelWidth, Math.max(110, estimateTextWidth(visual.title, 13) + 16, time.label.length * 6.1 + 12))
+      ? Math.min(labelWidth, Math.max(110, measureText(visual.title, titleFont) + 16, time.label.length * 6.1 + 12))
       : labelWidth;
-    let displayTitle = visual.title;
-    while (displayTitle.length > 1 && estimateTextWidth(displayTitle, 13) > contentWidth - 6)
-      displayTitle = displayTitle.slice(0, -1);
-    if (displayTitle !== visual.title) displayTitle = displayTitle.slice(0, -1) + "…";
+    const displayTitle = fitMeasuredText(visual.title, contentWidth - 6, titleFont);
     const isDated = time.status === "dated";
     return {
       key: entry.key,

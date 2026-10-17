@@ -101,8 +101,8 @@ export function projectCompoundGraph(doc: NormalizedDag, view: CompoundView, sel
       items.get(source)!.internalEdgeIds.push(edge.id);
       continue;
     }
-    const relation = typeof edge.value === "number" ? "numeric" : JSON.stringify([typeof edge.value, edge.value]);
-    const key = JSON.stringify([source, target, relation]);
+    // Summarize each visible direction once; retain all relationship values through their original IDs.
+    const key = JSON.stringify([source, target]);
     const aggregate = aggregates.get(key) ?? { source, target, edges: [] };
     aggregate.edges.push(edge);
     aggregates.set(key, aggregate);
@@ -112,7 +112,7 @@ export function projectCompoundGraph(doc: NormalizedDag, view: CompoundView, sel
     source: bucket.source,
     target: bucket.target,
     originalEdgeIds: bucket.edges.map((edge) => edge.id),
-    label: bucket.edges.length > 1 ? `${bucket.edges.length} relationships` : String(bucket.edges[0].value ?? ""),
+    label: bucket.edges.length > 1 ? `${bucket.edges.length} edges` : String(bucket.edges[0].value ?? ""),
   }));
   return { items: [...items.values()].sort((a, b) => a.depth - b.depth), edges, representative, focusGroupId: focus };
 }

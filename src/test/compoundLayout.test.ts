@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import GraphStage from "../rendering/GraphStage";
 import ELK from "elkjs/lib/elk.bundled.js";
 import { normalizeDagInput } from "../graph/normalize";
 import { serializeDag } from "../graph/serialize";
@@ -40,14 +43,16 @@ export async function layoutFixture(
   dag: NormalizedDag,
   view: CompoundView = { collapsedGroupIds: [], focusGroupId: null },
   showEdgeLabels = false,
+  showNodeDetail = true,
+  appearance = getStageAppearance(DEFAULT_GRAPH_APPEARANCE),
 ) {
   return buildCompoundStage(
     {
       dag,
       view,
       showEdgeLabels,
-      appearance: getStageAppearance(DEFAULT_GRAPH_APPEARANCE),
-      showNodeDetail: true,
+      appearance,
+      showNodeDetail,
       alignNodeWidthsToMax: false,
     },
     new ELK(),
@@ -61,6 +66,19 @@ interface Rect {
   height: number;
 }
 const epsilon = 0.02;
+function assertSideMidpoint(point: { x: number; y: number }, box: Rect) {
+  const midpoints = [
+    { x: box.x + box.width / 2, y: box.y },
+    { x: box.x + box.width / 2, y: box.y + box.height },
+    { x: box.x, y: box.y + box.height / 2 },
+    { x: box.x + box.width, y: box.y + box.height / 2 },
+  ];
+  assert.ok(
+    midpoints.some((mid) => Math.hypot(point.x - mid.x, point.y - mid.y) < epsilon),
+    "endpoint must be a side midpoint",
+  );
+}
+
 function crossesInterior(a: { x: number; y: number }, b: { x: number; y: number }, rect: Rect) {
   if (Math.abs(a.x - b.x) < epsilon)
     return (
@@ -121,17 +139,8 @@ export function assertCompoundGeometry(dag: NormalizedDag, stage: StageData, vie
       );
     siblings.set(item.parentId, [...(siblings.get(item.parentId) ?? []), box]);
   }
-  const items = new Map(projection.items.map((item) => [item.id, item]));
-  const ancestors = (id: string) => {
-    const result = new Set<string>();
-    let parent = items.get(id)?.parentId;
-    while (parent) {
-      result.add(parent);
-      parent = items.get(parent)?.parentId;
-    }
-    return result;
-  };
   const onBorder = (p: { x: number; y: number }, box: Rect) => {
+    assertSideMidpoint(p, box);
     const horizontal =
       p.x >= box.x - epsilon &&
       p.x <= box.x + box.width + epsilon &&
@@ -152,7 +161,6 @@ export function assertCompoundGeometry(dag: NormalizedDag, stage: StageData, vie
       onBorder(points[points.length - 1], boxes.get(edge.target)!),
       `${edge.target}: route ends on target boundary`,
     );
-    const allowed = new Set([...ancestors(edge.source), ...ancestors(edge.target)]);
     for (let i = 1; i < points.length; i++) {
       const a = points[i - 1],
         b = points[i];
@@ -163,16 +171,80 @@ export function assertCompoundGeometry(dag: NormalizedDag, stage: StageData, vie
           !crossesInterior(a, b, boxes.get(node.key)!),
           `${edge.source} → ${edge.target} crosses node ${node.key}`,
         );
-      for (const group of stage.groups ?? []) {
-        assert.ok(!crossesInterior(a, b, { ...group, height: 50 }), `route crosses header ${group.id}`);
-        if (!allowed.has(group.id))
-          assert.ok(!crossesInterior(a, b, group), `route crosses unrelated container ${group.id}`);
-      }
     }
   }
 }
 
 export const compoundLayoutSuite = defineSuite("Independent nested layouts and boundary routing", [
+  defineTest("zero configured gaps produce finite nested geometry", async () => {
+    const dag = nestedChainFixture();
+    const appearance = { ...getStageAppearance(DEFAULT_GRAPH_APPEARANCE), columnGap: 0, rowGap: 0, edgeLaneGap: 0 };
+    const stage = await layoutFixture(dag, undefined, false, false, appearance);
+    assert.ok(stage.nodes.length > 0);
+    for (const node of stage.nodes)
+      for (const value of [node.x, node.y, node.width, node.height]) assert.ok(Number.isFinite(value));
+    for (const edge of stage.edges)
+      for (const point of edge.points ?? []) assert.ok(Number.isFinite(point.x) && Number.isFinite(point.y));
+  }),
+  defineTest("routing ignores expanded containers and headers but avoids their children and collapsed cards", () => {
+    const dag = normalizeDagInput({
+      format: "graph-studio",
+      version: 3,
+      nodes: { a: {}, b: {}, child: {} },
+      edges: [{ id: "ab", source: "a", target: "b" }],
+      hierarchy: { id: "scene", groups: { g: { title: "Expanded group" } }, parentById: { child: "g" } },
+    });
+    const boxes = new Map<string, Rect>([
+      ["a", { x: 100, y: 100, width: 100, height: 80 }],
+      ["b", { x: 600, y: 100, width: 100, height: 80 }],
+      ["g", { x: 280, y: 100, width: 200, height: 300 }],
+      ["child", { x: 330, y: 260, width: 100, height: 80 }],
+    ]);
+    const route = (collapsed: boolean) => {
+      const projection = projectCompoundGraph(dag, { collapsedGroupIds: collapsed ? ["g"] : [], focusGroupId: null });
+      const edge = projection.edges[0];
+      return shortenCompoundRoutes(
+        projection,
+        boxes,
+        new Map([
+          [
+            edge.id,
+            {
+              points: [
+                { x: 150, y: 180 },
+                { x: 150, y: 450 },
+                { x: 650, y: 450 },
+                { x: 650, y: 180 },
+              ],
+              labelPosition: { x: 400, y: 450 },
+            },
+          ],
+        ]),
+        { x: 0, y: 0, width: 1000, height: 600 },
+        false,
+      ).get(edge.id)!.points;
+    };
+    const direct = [
+      { x: 200, y: 140 },
+      { x: 600, y: 140 },
+    ];
+    assert.deepEqual(route(false), direct, "a route can cross an unrelated expanded group's header");
+    const group = boxes.get("g")!;
+    boxes.delete("g");
+    dag.hierarchy!.parentById.a = "g";
+    dag.hierarchy!.parentById.b = "g";
+    assert.deepEqual(route(false), direct, "even a common parent box is irrelevant to routing");
+    delete dag.hierarchy!.parentById.a;
+    delete dag.hierarchy!.parentById.b;
+    boxes.set("g", group);
+    boxes.set("child", { x: 330, y: 100, width: 100, height: 80 });
+    for (const collapsed of [false, true]) {
+      const points = route(collapsed);
+      const obstacle = boxes.get(collapsed ? "g" : "child")!;
+      assert.notDeepEqual(points, direct);
+      for (let i = 1; i < points.length; i++) assert.ok(!crossesInterior(points[i - 1], points[i], obstacle));
+    }
+  }),
   defineTest("free routing uses each of the four sides and removes an unnecessary return loop", () => {
     const dag = normalizeDagInput({
       format: "graph-studio",
@@ -242,6 +314,152 @@ export const compoundLayoutSuite = defineSuite("Independent nested layouts and b
     assert.equal(JSON.stringify(dag), before);
     const again = await layoutFixture(dag);
     assert.deepEqual(again, stage, "repeat layouts are deterministic");
+  }),
+  defineTest("fixed midpoints route offset boxes and separate reverse directions without sliding", () => {
+    const dag = normalizeDagInput({
+      format: "graph-studio",
+      version: 3,
+      nodes: { a: {}, b: {} },
+      edges: [
+        { id: "ab", source: "a", target: "b" },
+        { id: "ba", source: "b", target: "a" },
+      ],
+    });
+    const projection = projectCompoundGraph(dag, { collapsedGroupIds: [], focusGroupId: null });
+    for (const gap of [32, 280])
+      for (let turn = 0; turn < 4; turn++) {
+        const rotate = (original: { x: number; y: number }) => {
+          let point = original;
+          for (let i = 0; i < turn; i++) point = { x: 1000 - point.y, y: point.x };
+          return point;
+        };
+        const rect = (x: number, y: number): Rect => {
+          const a = rotate({ x, y }),
+            b = rotate({ x: x + 120, y: y + 120 });
+          return {
+            x: Math.min(a.x, b.x),
+            y: Math.min(a.y, b.y),
+            width: Math.abs(a.x - b.x),
+            height: Math.abs(a.y - b.y),
+          };
+        };
+        const original = [
+          { x: 220, y: 170 },
+          { x: 220 + gap, y: 170 },
+        ].map(rotate);
+        const boxes = new Map([
+          ["a", rect(100, 100)],
+          ["b", rect(220 + gap, 120)],
+        ]);
+        const routes = new Map(
+          projection.edges.map((edge) => [
+            edge.id,
+            {
+              points: edge.source === "a" ? original : [...original].reverse(),
+              labelPosition: { x: 0, y: 0 },
+            },
+          ]),
+        );
+        const routed = shortenCompoundRoutes(
+          projection,
+          boxes,
+          routes,
+          { x: 0, y: 0, width: 1000, height: 1000 },
+          false,
+        );
+        const forward = routed.get(projection.edges[0].id)!.points;
+        const reverse = routed.get(projection.edges[1].id)!.points;
+        assert.ok(forward.length <= 4, "offset centers need at most two bends");
+        assertSideMidpoint(forward[0], boxes.get("a")!);
+        assertSideMidpoint(forward[forward.length - 1], boxes.get("b")!);
+        assertSideMidpoint(reverse[0], boxes.get("b")!);
+        assertSideMidpoint(reverse[reverse.length - 1], boxes.get("a")!);
+        assert.ok(reverse.length <= 4, "reverse edges use separate midpoint sides or lanes");
+        assert.ok(
+          Math.hypot(forward[0].x - reverse[reverse.length - 1].x, forward[0].y - reverse[reverse.length - 1].y) >=
+            16 - epsilon,
+        );
+        assert.ok(
+          Math.hypot(forward[forward.length - 1].x - reverse[0].x, forward[forward.length - 1].y - reverse[0].y) >=
+            16 - epsilon,
+        );
+        assert.deepEqual(
+          shortenCompoundRoutes(
+            { ...projection, edges: [...projection.edges].reverse() },
+            boxes,
+            routes,
+            { x: 0, y: 0, width: 1000, height: 1000 },
+            false,
+          ),
+          routed,
+          "edge input order must not change the lanes",
+        );
+      }
+  }),
+  defineTest("expanded experience uses one bend and group statistics can hide without changing geometry", async () => {
+    const dag = normalizeDagInput(JSON.parse(await readFile("public/examples/commerce/commerce.json", "utf8")));
+    const view = {
+      collapsedGroupIds: Object.keys(dag.hierarchy!.groups).filter((id) => id !== "experience"),
+      focusGroupId: null,
+    };
+    for (const showDetail of [false, true]) {
+      const stage = await layoutFixture(dag, view, false, showDetail);
+      assertCompoundGeometry(dag, stage, view);
+      const points = stage.edges.find((edge) => edge.source === "web" && edge.target === "gateway")!.points!;
+      assert.equal(points.length, 3, "the screenshot route needs just one bend");
+      assert.equal(points[0].x, stage.nodeMap.web.x);
+      assert.equal(points[0].y, stage.nodeMap.web.y + stage.nodeMap.web.height / 2);
+      assert.equal(points[2].x, stage.nodeMap.gateway.x + stage.nodeMap.gateway.width / 2);
+      assert.equal(points[2].y, stage.nodeMap.gateway.y);
+      const before = JSON.stringify(stage);
+      const noop = () => {};
+      for (const showGroupStats of [true, false]) {
+        const html = renderToStaticMarkup(
+          createElement(GraphStage, {
+            stage,
+            focusedKey: null,
+            hideNodeBorders: false,
+            appearance: {
+              ...DEFAULT_GRAPH_APPEARANCE,
+              display: { ...DEFAULT_GRAPH_APPEARANCE.display, showGroupStats },
+            },
+            svgRef: { current: null },
+            onNodeClick: noop,
+            onNodeDoubleClick: noop,
+            onNodeContextMenu: noop,
+            onBackgroundContextMenu: noop,
+            onFocusChange: noop,
+          }),
+        );
+        assert.equal(html.includes('class="dag-group-count"'), showGroupStats);
+        const visibleDetails = stage.nodes.filter(
+          (node) => node.detailLines.length && (node.kind !== "group" || showGroupStats),
+        ).length;
+        assert.equal((html.match(/class="dag-node__detail dag-node__content"/g) ?? []).length, visibleDetails);
+      }
+      assert.equal(JSON.stringify(stage), before, "visibility does not move nodes or routes");
+    }
+  }),
+  defineTest("collapsed commerce routes use fixed midpoints and keep labels clear of other lines", async () => {
+    const dag = normalizeDagInput(JSON.parse(await readFile("public/examples/commerce/commerce.json", "utf8")));
+    const view = { collapsedGroupIds: Object.keys(dag.hierarchy!.groups), focusGroupId: null };
+    const stage = await layoutFixture(dag, view, true);
+    assertCompoundGeometry(dag, stage, view);
+    for (const edge of stage.edges) {
+      const width = Math.max(edge.label.length * 7 + 10, 18);
+      const label = {
+        x: edge.labelPosition.x - width / 2 - 2,
+        y: edge.labelPosition.y - 12,
+        width: width + 4,
+        height: 20,
+      };
+      for (const other of stage.edges.filter((candidate) => candidate.id !== edge.id))
+        for (let i = 1; i < other.points!.length; i++)
+          assert.ok(
+            !crossesInterior(other.points![i - 1], other.points![i], label),
+            "labels must not cover another route",
+          );
+    }
   }),
   defineTest(
     "acyclic leaf graphs may contract to cyclic container graphs without reversing actual arrows",

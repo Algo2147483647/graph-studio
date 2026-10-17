@@ -7,6 +7,7 @@ import type { StudioUiController } from "../controllers/useStudioUi";
 import { useWorkspacePreview } from "../controllers/useWorkspacePreview";
 import { useSidebarResize } from "../hooks/useSidebarResize";
 import { downloadSvg } from "../rendering/export-svg";
+import { downloadHtml } from "../rendering/export-html";
 import type { ConsoleController } from "../controllers/useConsoleController";
 import type { DocumentSessionController } from "../controllers/useDocumentSession";
 import type { GraphTransactionsController } from "../controllers/useGraphTransactions";
@@ -69,6 +70,21 @@ export default function StudioView({
     }
     downloadSvg(viewport.svgRef.current);
     dispatch({ type: "statusChanged", status: "Exported current view as dag-graph.svg." });
+  }
+  function exportHtml() {
+    if (!viewport.svgRef.current || !viewport.stage || !state.dag) {
+      dispatch({ type: "statusChanged", status: "Render a graph first, then export HTML." });
+      return;
+    }
+    try {
+      downloadHtml(viewport.svgRef.current, viewport.stage, state.dag, state.source.fileName);
+      dispatch({ type: "statusChanged", status: "Exported current canvas as interactive HTML." });
+    } catch (error) {
+      dispatch({
+        type: "statusChanged",
+        status: `HTML export failed: ${error instanceof Error ? error.message : error}`,
+      });
+    }
   }
   const relationEditor = state.ui.relationEditor;
   const detailNodeKey = state.ui.nodeDetail?.nodeKey || null;
@@ -267,14 +283,16 @@ export default function StudioView({
         onAppearanceCssVarChange={appearanceHistory.handleAppearanceCssVarChange}
         onAppearanceCssChange={appearanceHistory.handleAppearanceCssChange}
         onAppearanceDisplayChange={appearanceHistory.handleAppearanceDisplayChange}
-        onAppearancePresetChange={(presetId) => {
-          appearanceHistory.handleAppearancePresetChange(presetId);
-          if (presetId === "default" && !appearanceHistory.hideNodeBorders) appearanceHistory.toggleNodeBorders();
-        }}
-        onAppearanceReset={() => {
-          appearanceHistory.handleAppearanceReset();
-          if (!appearanceHistory.hideNodeBorders) appearanceHistory.toggleNodeBorders();
-        }}
+        onAppearanceAdjustmentStart={appearanceHistory.beginAdjustment}
+        onAppearanceAdjustmentEnd={appearanceHistory.endAdjustment}
+        onSectionReset={appearanceHistory.resetSection}
+        onAppearanceUndo={appearanceHistory.undo}
+        onAppearanceRedo={appearanceHistory.redo}
+        canUndoAppearance={appearanceHistory.canUndo}
+        canRedoAppearance={appearanceHistory.canRedo}
+        preferencesSaved={preferences.saved}
+        onAppearancePresetChange={appearanceHistory.handleAppearancePresetChange}
+        onAppearanceReset={appearanceHistory.handleAppearanceReset}
         onAppearanceExport={appearanceHistory.handleAppearanceExport}
         onAppearanceImportClick={appearanceHistory.handleAppearanceImportClick}
         onAppearanceImportChange={appearanceHistory.handleAppearanceImportChange}
@@ -284,6 +302,8 @@ export default function StudioView({
         onConsoleSidebarToggle={ui.toggleConsole}
         onInitializeCanvas={onInitializeCanvas}
         onExport={exportSvg}
+        onExportHtml={exportHtml}
+        canExportCanvas={Boolean(viewport.stage && !files.homeVisible)}
         onAiSettingsChange={preferences.setAiSettings}
         onAiConnectionTest={ai.testConnection}
       />

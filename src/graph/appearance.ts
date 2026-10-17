@@ -9,8 +9,12 @@ export interface GraphAppearance {
 }
 
 interface GraphDisplayAppearance {
+  edgeArrowStyle: "filled" | "open";
   showNodeDots: boolean;
   showEdgeLabels: boolean;
+  showGroupStats: boolean;
+  showGroupBorders: boolean;
+  nodeCornerRadius: number;
   nodeShadow: boolean;
   shadowBlur: number;
   shadowOffset: number;
@@ -266,8 +270,12 @@ export const DEFAULT_GRAPH_APPEARANCE: GraphAppearance = {
     stageMinHeight: 600,
   },
   display: {
+    edgeArrowStyle: "filled",
     showNodeDots: true,
     showEdgeLabels: false,
+    showGroupStats: true,
+    showGroupBorders: true,
+    nodeCornerRadius: 24,
     nodeShadow: true,
     shadowBlur: 8,
     shadowOffset: 3,
@@ -306,35 +314,39 @@ export function sanitizeGraphAppearance(input: unknown): GraphAppearance {
     record.display && typeof record.display === "object" && !Array.isArray(record.display)
       ? (record.display as Record<string, unknown>)
       : {};
-  const minNodeWidth = clampNumeric(layoutInput.minNodeWidth, defaultLayout.minNodeWidth, 140, 260);
-  const maxNodeWidth = clampNumeric(layoutInput.maxNodeWidth, defaultLayout.maxNodeWidth, minNodeWidth, 480);
+  const minNodeWidth = finiteNumeric(layoutInput.minNodeWidth, defaultLayout.minNodeWidth);
+  const maxNodeWidth = finiteNumeric(layoutInput.maxNodeWidth, defaultLayout.maxNodeWidth);
 
   return {
     version: 1,
     layout: {
-      stagePaddingX: clampNumeric(layoutInput.stagePaddingX, defaultLayout.stagePaddingX, 24, 260),
-      stagePaddingY: clampNumeric(layoutInput.stagePaddingY, defaultLayout.stagePaddingY, 24, 220),
-      columnGap: clampNumeric(layoutInput.columnGap, defaultLayout.columnGap, 48, 260),
-      rowGap: clampNumeric(layoutInput.rowGap, defaultLayout.rowGap, 4, 140),
-      edgeLaneGap: clampNumeric(layoutInput.edgeLaneGap, defaultLayout.edgeLaneGap, 4, 96),
-      nodeHeight: clampNumeric(layoutInput.nodeHeight, defaultLayout.nodeHeight, 44, 160),
+      stagePaddingX: finiteNumeric(layoutInput.stagePaddingX, defaultLayout.stagePaddingX),
+      stagePaddingY: finiteNumeric(layoutInput.stagePaddingY, defaultLayout.stagePaddingY),
+      columnGap: finiteNumeric(layoutInput.columnGap, defaultLayout.columnGap),
+      rowGap: finiteNumeric(layoutInput.rowGap, defaultLayout.rowGap),
+      edgeLaneGap: finiteNumeric(layoutInput.edgeLaneGap, defaultLayout.edgeLaneGap),
+      nodeHeight: finiteNumeric(layoutInput.nodeHeight, defaultLayout.nodeHeight),
       minNodeWidth,
       maxNodeWidth,
-      stageMinWidth: clampNumeric(layoutInput.stageMinWidth, defaultLayout.stageMinWidth, 320, 4000),
-      stageMinHeight: clampNumeric(layoutInput.stageMinHeight, defaultLayout.stageMinHeight, 240, 3000),
+      stageMinWidth: finiteNumeric(layoutInput.stageMinWidth, defaultLayout.stageMinWidth),
+      stageMinHeight: finiteNumeric(layoutInput.stageMinHeight, defaultLayout.stageMinHeight),
     },
     display: {
+      edgeArrowStyle: displayInput.edgeArrowStyle === "open" ? "open" : "filled",
       showNodeDots: typeof displayInput.showNodeDots === "boolean" ? displayInput.showNodeDots : true,
       showEdgeLabels:
         displayInput.showEdgeLabels === undefined
           ? DEFAULT_GRAPH_APPEARANCE.display.showEdgeLabels
           : displayInput.showEdgeLabels === true,
       nodeShadow: typeof displayInput.nodeShadow === "boolean" ? displayInput.nodeShadow : true,
-      shadowBlur: clampNumeric(displayInput.shadowBlur, 8, 0, 32),
-      shadowOffset: clampNumeric(displayInput.shadowOffset, 3, 0, 16),
-      shadowOpacity: clampNumeric(displayInput.shadowOpacity, 12, 0, 40),
-      sankeyNodeWidth: clampNumeric(displayInput.sankeyNodeWidth, 20, 8, 48),
-      sankeyLinkOpacity: clampNumeric(displayInput.sankeyLinkOpacity, 32, 5, 90),
+      showGroupBorders: typeof displayInput.showGroupBorders === "boolean" ? displayInput.showGroupBorders : true,
+      showGroupStats: typeof displayInput.showGroupStats === "boolean" ? displayInput.showGroupStats : true,
+      nodeCornerRadius: finiteNumeric(displayInput.nodeCornerRadius, 24),
+      shadowBlur: finiteNumeric(displayInput.shadowBlur, 8),
+      shadowOffset: finiteNumeric(displayInput.shadowOffset, 3),
+      shadowOpacity: finiteNumeric(displayInput.shadowOpacity, 12),
+      sankeyNodeWidth: finiteNumeric(displayInput.sankeyNodeWidth, 20),
+      sankeyLinkOpacity: finiteNumeric(displayInput.sankeyLinkOpacity, 32),
     },
     cssVars: sanitizeCssVars(record.cssVars),
     css: sanitizeCss(record.css),
@@ -375,19 +387,14 @@ function sanitizeCssVars(input: unknown): Record<string, string> {
     if (!key.startsWith("--dag-") || typeof value !== "string") {
       return;
     }
-    // The old translucent default let the drop shadow show through the card.
-    // Migrate that default in saved preferences without changing custom colors.
-    const isLegacyFill =
-      ["--dag-node-fill", "--dag-node-root-fill", "--dag-node-active-fill"].includes(key) &&
-      value.replace(/\s/g, "").toLowerCase() === "rgba(252,253,255,0.88)";
-    vars[key] = isLegacyFill ? "#ffffff" : value.slice(0, 500);
+    vars[key] = value.slice(0, 500);
   });
   return vars;
 }
 
-function clampNumeric(value: unknown, fallback: number, min: number, max: number): number {
+function finiteNumeric(value: unknown, fallback: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return fallback;
   }
-  return Math.max(min, Math.min(max, Math.round(value)));
+  return value;
 }

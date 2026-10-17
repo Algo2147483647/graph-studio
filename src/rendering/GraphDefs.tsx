@@ -1,3 +1,4 @@
+import { GRAPH_BASE_CSS } from "./graphBaseStyles";
 import { GRAPH_EFFECTS_CSS } from "../graph/appearance";
 import { TIMELINE_CSS, timelineMarkerId } from "./timelineStyles";
 
@@ -5,14 +6,15 @@ const ARROW_MARKER_WIDTH = 10;
 const ARROW_MARKER_HEIGHT = 8;
 
 interface GraphDefsProps {
+  edgeArrowStyle?: "filled" | "open";
   appearanceCss: string;
   timelineColors?: string[];
 }
 
-export default function GraphDefs({ appearanceCss, timelineColors = [] }: GraphDefsProps) {
+export default function GraphDefs({ appearanceCss, timelineColors = [], edgeArrowStyle = "filled" }: GraphDefsProps) {
   return (
     <defs>
-      <style>{`${appearanceCss}\n${GRAPH_EFFECTS_CSS}\n${TIMELINE_CSS}`}</style>
+      <style>{`${GRAPH_BASE_CSS}\n${appearanceCss}\n${GRAPH_EFFECTS_CSS}\n${TIMELINE_CSS}`}</style>
       {timelineColors.map((color) => (
         <marker
           key={color}
@@ -35,12 +37,20 @@ export default function GraphDefs({ appearanceCss, timelineColors = [] }: GraphD
         markerUnits="userSpaceOnUse"
         markerWidth={ARROW_MARKER_WIDTH}
         markerHeight={ARROW_MARKER_HEIGHT}
-        refX={ARROW_MARKER_WIDTH - 0.4}
+        refX={edgeArrowStyle === "open" ? 9 : ARROW_MARKER_WIDTH - 0.4}
         refY={ARROW_MARKER_HEIGHT / 2}
       >
         <path
-          d={`M 0 0 L ${ARROW_MARKER_WIDTH} ${ARROW_MARKER_HEIGHT / 2} L 0 ${ARROW_MARKER_HEIGHT} z`}
-          fill="context-stroke"
+          d={
+            edgeArrowStyle === "open"
+              ? "M1 1 L9 4 L1 7"
+              : `M 0 0 L ${ARROW_MARKER_WIDTH} ${ARROW_MARKER_HEIGHT / 2} L 0 ${ARROW_MARKER_HEIGHT} z`
+          }
+          fill={edgeArrowStyle === "open" ? "none" : "context-stroke"}
+          stroke={edgeArrowStyle === "open" ? "context-stroke" : undefined}
+          strokeWidth={edgeArrowStyle === "open" ? 1 : undefined}
+          strokeLinecap={edgeArrowStyle === "open" ? "round" : undefined}
+          strokeLinejoin={edgeArrowStyle === "open" ? "round" : undefined}
         />
       </marker>
       <filter id="soft-glow" x="-50%" y="-50%" width="200%" height="200%">

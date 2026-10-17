@@ -1,3 +1,4 @@
+import { stylePipelineSuite } from "./stylePipeline.test";
 import { timelineAxisSuite } from "./timelineAxis.test";
 import { timelineFlowSuite } from "./timelineFlow.test";
 import { timelineViewSuite } from "./timelineView.test";
@@ -8,6 +9,8 @@ import { compoundLayoutSuite } from "./compoundLayout.test";
 import { aiHarnessSuite } from "./aiHarness.test";
 import { documentSessionSuite } from "./documentSession.test";
 import { appearanceSuite } from "./appearance.test";
+import { previewSuite } from "./preview.test";
+import { settingsSuite } from "./settings.test";
 import { chartTypesSuite } from "./chartTypes.test";
 import { consoleSuite } from "./console.test";
 import { examplesSuite } from "./examples.test";
@@ -25,15 +28,23 @@ import { recentStorageSuite } from "./recentStorage.test";
 import { timelineSuite } from "./timeline.test";
 import { timelineRenderingSuite } from "./timelineRendering.test";
 import { spaceHistorySuite } from "./spaceHistory.test";
+import { scienceHistorySuite } from "./scienceHistory.test";
 import { nodeRelationsSuite } from "./nodeRelations.test";
+import { htmlExportSuite } from "./htmlExport.test";
+import { nodeLinkDefaultsSuite } from "./nodeLinkDefaults.test";
 
 async function main() {
   const { passed, failed } = await runSuites([
+    stylePipelineSuite,
     compoundSuite,
     compoundLayoutSuite,
     aiHarnessSuite,
     documentSessionSuite,
     appearanceSuite,
+    previewSuite,
+    settingsSuite,
+    htmlExportSuite,
+    nodeLinkDefaultsSuite,
     chartTypesSuite,
     graphSuite,
     importMergeSuite,
@@ -55,6 +66,7 @@ async function main() {
     timelineSuite,
     timelineRenderingSuite,
     spaceHistorySuite,
+    scienceHistorySuite,
     nodeRelationsSuite,
   ]);
 

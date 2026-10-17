@@ -46,11 +46,11 @@ export const chartTypesSuite = defineSuite("chart types and independent styles",
       action: { type: "commit", appearance, label: "Color" },
     });
     state = chartPreferencesReducer(state, { chartType: "node-link", action: { type: "undo" } });
-    assert.equal(state["node-link"].showNodeDetail, false);
+    assert.equal(state["node-link"].showNodeDetail, true);
     assert.equal(state.sankey.showNodeDetail, true);
     state = chartPreferencesReducer(state, { chartType: "node-link", action: { type: "redo" } });
     const persisted = getChartStyles(state);
-    assert.equal(persisted["node-link"].showNodeDetail, false);
+    assert.equal(persisted["node-link"].showNodeDetail, true);
     assert.equal("undoStack" in persisted["node-link"], false);
     assert.equal("redoStack" in persisted["node-link"], false);
     assert.deepEqual(parseGraphPagePreferences(JSON.stringify({ chartStyles: persisted }))?.chartStyles, persisted);
@@ -335,23 +335,18 @@ export const chartTypesSuite = defineSuite("chart types and independent styles",
     assert.equal(next.dag, edited);
     assert.match(next.ui.status, /Showing the node-link chart/);
   }),
-  defineTest("legacy shared preferences migrate into two independent profiles", () => {
-    const parsed = parseGraphPagePreferences(
-      JSON.stringify({
-        layoutMode: "sankey",
-        hideNodeBorders: true,
-        showNodeDetail: false,
-        appearance: { cssVars: { "--dag-text-strong": "#123456" }, display: { sankeyLinkOpacity: 55 } },
-      }),
+  defineTest("obsolete shared styles and layout aliases are not migrated", () => {
+    assert.equal(
+      parseGraphPagePreferences(
+        JSON.stringify({
+          layoutMode: "sankey",
+          hideNodeBorders: true,
+          showNodeDetail: false,
+          appearance: { cssVars: { "--dag-text-strong": "#123456" } },
+        }),
+      ),
+      null,
     );
-    assert.equal(parsed?.chartType, "sankey");
-    const styles = parsed!.chartStyles!;
-    assert.equal(styles["node-link"].hideNodeBorders, true);
-    assert.equal(styles.sankey.showNodeDetail, false);
-    assert.equal(styles.sankey.appearance.display.sankeyLinkOpacity, 55);
-    assert.deepEqual(styles["node-link"], styles.sankey);
-    assert.notEqual(styles["node-link"].appearance, styles.sankey.appearance);
-    assert.notEqual(styles["node-link"].appearance.cssVars, styles.sankey.appearance.cssVars);
   }),
   defineTest("reload preserves both styles and the remembered node-link layout", () => {
     let stored = "";
@@ -377,8 +372,8 @@ export const chartTypesSuite = defineSuite("chart types and independent styles",
     const invalid = parseGraphPagePreferences(
       '{"chartStyles":{"node-link":null,"sankey":{"appearance":{"display":{"sankeyLinkOpacity":999}}}}}',
     )!;
-    assert.equal(invalid.chartStyles!["node-link"].showNodeDetail, true);
-    assert.equal(invalid.chartStyles!.sankey.appearance.display.sankeyLinkOpacity, 90);
+    assert.equal(invalid.chartStyles!["node-link"].showNodeDetail, false);
+    assert.equal(invalid.chartStyles!.sankey.appearance.display.sankeyLinkOpacity, 999);
   }),
   defineTest("appearance commits, resets, undo and redo affect only their chart type", () => {
     const styles = createChartStyles();

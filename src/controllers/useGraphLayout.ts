@@ -1,4 +1,6 @@
+import { useFontMetricsKey } from "./useFontMetricsKey";
 import { useMemo } from "react";
+import { useDebouncedValue } from "./useDebouncedValue";
 import { getNodeTitle } from "../graph/accessors";
 import type { GraphAppearance } from "../graph/appearance";
 import { getParentLevelSelection, sanitizeNodeLabel } from "../graph/selectors";
@@ -39,13 +41,16 @@ export function useGraphLayout({
     [activeType, activeTrack, state.dag, state.chartType],
   );
   const renderMode = getGraphRenderMode(state.chartType, state.layout.mode);
-  const geometryJson = JSON.stringify(getStageAppearance(appearance));
-  const geometryAppearance = useMemo(() => JSON.parse(geometryJson) as StageAppearance, [geometryJson]);
+  const fontMetricsKey = useFontMetricsKey();
+  const geometryJson = JSON.stringify(getStageAppearance(appearance, state.chartType, fontMetricsKey));
+  const requestedGeometry = useMemo(() => JSON.parse(geometryJson) as StageAppearance, [geometryJson]);
+  const geometryAppearance = useDebouncedValue(requestedGeometry);
+  const timelineSettings = useDebouncedValue(state.timelineSettings);
   const timelineView = useTimelineStage({
     dag: state.chartType === "timeline" ? state.dag : null,
     visibleDag: displayDag,
     generation: state.document.generation,
-    settings: state.timelineSettings,
+    settings: timelineSettings,
     appearance: geometryAppearance,
     showNodeDetail,
     range: activeTimelineRange,

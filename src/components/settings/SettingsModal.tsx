@@ -9,9 +9,12 @@ import type { GraphChartType, GraphLayoutMode } from "../../graph/types";
 import type { WorkspaceControls } from "../../controllers/workspaceControls";
 import AiSettingsPanel, { type AiConnectionStatus } from "./AiSettingsPanel";
 import AppearanceSettings from "./AppearanceSettings";
-import GeneralSettings from "./GeneralSettings";
-import { type SettingsChapter, APPEARANCE_TOKEN_CONTROLS, SETTINGS_CHAPTERS } from "./settingsConfig";
+import AppearancePreview from "./AppearancePreview";
+import FilesSettings from "./FilesSettings";
+import { type SettingsChapter, SETTINGS_CHAPTERS } from "./settingsConfig";
 import { parseCssPixelValue } from "./settingsUtils";
+import { getGraphChartLabel } from "../../graph/types";
+import { getSettingsCatalog, matchesSetting, type AppearanceGroup } from "./settingsCatalog";
 
 interface SettingsModalProps {
   open: boolean;
@@ -35,6 +38,14 @@ interface SettingsModalProps {
   onLayoutAppearanceChange: <K extends keyof GraphLayoutAppearance>(key: K, value: GraphLayoutAppearance[K]) => void;
   onAppearanceCssVarChange: (key: string, value: string) => void;
   onAppearanceCssChange: (css: string) => void;
+  onAppearanceAdjustmentStart: () => void;
+  onAppearanceAdjustmentEnd: () => void;
+  onSectionReset: (group: AppearanceGroup | "layout") => void;
+  onAppearanceUndo: () => void;
+  onAppearanceRedo: () => void;
+  canUndoAppearance: boolean;
+  canRedoAppearance: boolean;
+  preferencesSaved: boolean;
   onAppearanceDisplayChange: <K extends keyof GraphAppearance["display"]>(
     key: K,
     value: GraphAppearance["display"][K],
@@ -50,6 +61,8 @@ interface SettingsModalProps {
   onConsoleSidebarToggle: () => void;
   onInitializeCanvas: () => void;
   onExport: () => void;
+  onExportHtml: () => void;
+  canExportCanvas: boolean;
   onAiSettingsChange: (settings: AiSettings) => void;
   onAiConnectionTest: () => Promise<boolean>;
 }
@@ -76,6 +89,14 @@ export default function SettingsModal({
   onLayoutAppearanceChange,
   onAppearanceCssVarChange,
   onAppearanceCssChange,
+  onAppearanceAdjustmentStart,
+  onAppearanceAdjustmentEnd,
+  onSectionReset,
+  onAppearanceUndo,
+  onAppearanceRedo,
+  canUndoAppearance,
+  canRedoAppearance,
+  preferencesSaved,
   onAppearanceDisplayChange,
   onAppearancePresetChange,
   onAppearanceReset,
@@ -88,35 +109,55 @@ export default function SettingsModal({
   onConsoleSidebarToggle,
   onInitializeCanvas,
   onExport,
+  onExportHtml,
+  canExportCanvas,
   onAiSettingsChange,
   onAiConnectionTest,
 }: SettingsModalProps) {
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
-  const [activeChapter, setActiveChapter] = useState<SettingsChapter>("general");
+  const [activeChapter, setActiveChapter] = useState<SettingsChapter>("appearance");
+  const [previewMode, setPreviewMode] = useState<"overview" | "detail">("detail");
   const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const [aiConnectionStatus, setAiConnectionStatus] = useState<AiConnectionStatus>("idle");
   const [appearanceCssDraft, setAppearanceCssDraft] = useState(appearance.css);
-  const [cssVarDrafts, setCssVarDrafts] = useState<Record<string, string>>(() => buildCssVarDrafts(appearance));
-  const [titleSizeDraft, setTitleSizeDraft] = useState(() =>
-    String(parseCssPixelValue(appearance.cssVars["--dag-title-font-size"], 15)),
-  );
-  const chapters = SETTINGS_CHAPTERS.filter(
-    (chapter) =>
-      !query ||
-      query
-        .toLowerCase()
-        .split(/\s+/)
-        .every((word) => `${chapter.label} ${chapter.description} ${chapter.keywords}`.toLowerCase().includes(word)),
-  );
-  const shownChapter = chapters.some((chapter) => chapter.key === activeChapter) ? activeChapter : chapters[0]?.key;
+  const results = getSettingsCatalog(chartType).filter((item) => matchesSetting(item, query));
+  const chapterCount = (key: SettingsChapter) => results.filter((item) => item.chapter === key).length;
+  const shownChapter = !query.trim() || chapterCount(activeChapter) ? activeChapter : results[0]?.chapter;
+  const visualChapter = shownChapter === "appearance" || shownChapter === "layout";
+  const cssPending = appearanceCssDraft !== appearance.css;
+  useEffect(() => setPreviewMode(shownChapter === "layout" ? "overview" : "detail"), [shownChapter]);
   useEffect(() => {
     if (open) {
       setQuery("");
       searchRef.current?.focus();
     }
   }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const overflow = document.body.style.overflow;
+    const rootOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = overflow;
+      document.documentElement.style.overflow = rootOverflow;
+    };
+  }, [open]);
   const titleFontSize = parseCssPixelValue(appearance.cssVars["--dag-title-font-size"], 15);
+  useEffect(() => {
+    if (!open) return;
+    const finish = () => onAppearanceAdjustmentEnd();
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+    window.addEventListener("blur", finish);
+    return () => {
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      window.removeEventListener("blur", finish);
+      finish();
+    };
+  }, [open, onAppearanceAdjustmentEnd]);
 
   useEffect(() => {
     setAiConnectionStatus("idle");
@@ -124,9 +165,7 @@ export default function SettingsModal({
 
   useEffect(() => {
     setAppearanceCssDraft(appearance.css);
-    setCssVarDrafts(buildCssVarDrafts(appearance));
-    setTitleSizeDraft(String(titleFontSize));
-  }, [appearance, titleFontSize]);
+  }, [appearance.css]);
 
   const handleAiConnectionTestClick = async () => {
     setAiConnectionStatus("testing");
@@ -158,16 +197,36 @@ export default function SettingsModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-modal-title"
+        onPointerDownCapture={(event) => {
+          if (event.target instanceof HTMLInputElement && event.target.type === "range") onAppearanceAdjustmentStart();
+        }}
+        onBlurCapture={(event) => {
+          if (event.target instanceof HTMLInputElement && event.target.type === "range") onAppearanceAdjustmentEnd();
+        }}
+        onKeyUpCapture={(event) => {
+          if (event.target instanceof HTMLInputElement && event.target.type === "range") onAppearanceAdjustmentEnd();
+        }}
+        onKeyDownCapture={(event) => {
+          if (
+            event.target instanceof HTMLInputElement &&
+            event.target.type === "range" &&
+            ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(event.key)
+          )
+            onAppearanceAdjustmentStart();
+        }}
         onKeyDown={(event) => {
           event.stopPropagation();
           if (event.key === "Escape") {
             event.preventDefault();
-            onClose();
+            if (query.trim()) {
+              setQuery("");
+              searchRef.current?.focus();
+            } else onClose();
           }
           if (event.key === "Tab") {
             const controls = [
               ...event.currentTarget.querySelectorAll<HTMLElement>(
-                'button:not(:disabled), input:not([type="file"]), select, textarea, summary',
+                'button:not(:disabled), input:not([type="file"]), select, textarea, summary, iframe',
               ),
             ].filter((el) => el.offsetParent !== null);
             const first = controls[0],
@@ -183,10 +242,7 @@ export default function SettingsModal({
         }}
       >
         <div className="settings-modal-header">
-          <div>
-            <h2 id="settings-modal-title">Settings</h2>
-            <p>Make Graph Studio work for you.</p>
-          </div>
+          <h2 id="settings-modal-title">Settings</h2>
           <button
             type="button"
             className="ghost-btn topbar-icon-btn"
@@ -218,112 +274,190 @@ export default function SettingsModal({
         </label>
         <div className="settings-modal-body">
           <nav className="settings-tabs" aria-label="Settings sections">
-            {chapters.map((chapter) => (
+            {SETTINGS_CHAPTERS.map((chapter) => (
               <button
                 key={chapter.key}
                 type="button"
                 className={`settings-tab${shownChapter === chapter.key ? " is-active" : ""}`}
                 aria-pressed={shownChapter === chapter.key}
-                onClick={() => setActiveChapter(chapter.key)}
+                onClick={() => {
+                  setActiveChapter(chapter.key);
+                  if (query && !chapterCount(chapter.key)) setQuery("");
+                }}
               >
                 <Icon name={chapter.icon} />
                 <span>
                   <strong>{chapter.label}</strong>
-                  <small>{chapter.description}</small>
                 </span>
+                {query.trim() && <span className="settings-result-count">{chapterCount(chapter.key)}</span>}
               </button>
             ))}
           </nav>
 
-          <div className="settings-page" key={shownChapter || "empty"}>
-            {!shownChapter && (
-              <div className="settings-no-results">
-                <Icon name="search" size={30} />
-                <h3>No matching settings</h3>
-                <p>Try “colors”, “spacing”, “workspace” or “AI”.</p>
-              </div>
-            )}
-            {shownChapter && (
-              <div className="settings-page-heading">
-                <h2>{SETTINGS_CHAPTERS.find((chapter) => chapter.key === shownChapter)?.label}</h2>
-                <p>{SETTINGS_CHAPTERS.find((chapter) => chapter.key === shownChapter)?.description}</p>
-              </div>
-            )}
-            {shownChapter === "general" ? (
-              <GeneralSettings
-                onClose={onClose}
-                fileName={fileName}
-                files={files}
-                hasGraph={hasGraph}
-                consoleSidebarOpen={consoleSidebarOpen}
-                onConsoleSidebarToggle={onConsoleSidebarToggle}
-                onInitializeCanvas={onInitializeCanvas}
-                onExport={onExport}
-              />
-            ) : null}
-
-            {shownChapter === "chart" || shownChapter === "appearance" || shownChapter === "layout" ? (
-              <AppearanceSettings
-                key={chartType}
-                view={shownChapter}
-                query={query}
-                chartType={chartType}
-                sankeyUnavailableReason={sankeyUnavailableReason}
-                onChartTypeChange={onChartTypeChange}
-                layoutMode={layoutMode}
+          <div className="settings-content">
+            {(shownChapter === "appearance" ||
+              shownChapter === "layout" ||
+              (!shownChapter && (activeChapter === "appearance" || activeChapter === "layout"))) && (
+              <AppearancePreview
                 appearance={appearance}
+                chartType={chartType}
+                layoutMode={layoutMode}
                 showNodeDetail={showNodeDetail}
                 hideNodeBorders={hideNodeBorders}
                 alignNodeWidthsToMax={alignNodeWidthsToMax}
-                appearanceCssDraft={appearanceCssDraft}
-                cssVarDrafts={cssVarDrafts}
-                titleSizeDraft={titleSizeDraft}
-                titleFontSize={titleFontSize}
-                onAppearanceCssDraftChange={setAppearanceCssDraft}
-                onCssVarDraftsChange={setCssVarDrafts}
-                onTitleSizeDraftChange={setTitleSizeDraft}
-                timelineControls={timelineControls}
-                onLayoutModeChange={onLayoutModeChange}
-                onLayoutAppearanceChange={onLayoutAppearanceChange}
-                onAppearanceCssVarChange={onAppearanceCssVarChange}
-                onAppearanceCssChange={onAppearanceCssChange}
-                onAppearanceDisplayChange={onAppearanceDisplayChange}
-                onAppearancePresetChange={onAppearancePresetChange}
-                onAppearanceReset={onAppearanceReset}
-                onAppearanceExport={onAppearanceExport}
-                onAppearanceImportClick={onAppearanceImportClick}
-                onAppearanceImportChange={onAppearanceImportChange}
-                onNodeDetailToggle={onNodeDetailToggle}
-                onNodeBordersToggle={onNodeBordersToggle}
-                onNodeWidthAlignToggle={onNodeWidthAlignToggle}
+                timelineSettings={timelineControls?.settings}
+                mode={previewMode}
+                onModeChange={setPreviewMode}
               />
-            ) : null}
+            )}
+            <div className="settings-page" key={shownChapter || "empty"}>
+              {!shownChapter && (
+                <div className="settings-no-results">
+                  <Icon name="search" size={30} />
+                  <h3>No matching settings</h3>
+                  <p>Try “colors”, “spacing”, “workspace” or “AI”.</p>
+                </div>
+              )}
+              {shownChapter && (
+                <div className="settings-page-heading">
+                  <div className="settings-title-line">
+                    <h2>{SETTINGS_CHAPTERS.find((chapter) => chapter.key === shownChapter)?.label}</h2>
+                    {(visualChapter || shownChapter === "chart") && (
+                      <span className="settings-chart-badge">{getGraphChartLabel(chartType)}</span>
+                    )}
+                  </div>
+                  {query.trim() && (
+                    <p role="status">
+                      {chapterCount(shownChapter)} matching settings · {results.length} across all sections
+                    </p>
+                  )}
+                </div>
+              )}
+              {shownChapter === "general" && (
+                <section className="settings-section">
+                  <h3>Interface</h3>
+                  <label className="settings-toggle-row">
+                    <span>
+                      <strong>Graph console</strong>
+                      <small>Show the sidebar to run commands and work with the AI assistant.</small>
+                    </span>
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      checked={consoleSidebarOpen}
+                      onChange={onConsoleSidebarToggle}
+                    />
+                  </label>
+                </section>
+              )}
+              {shownChapter === "files" ? (
+                <FilesSettings
+                  onClose={onClose}
+                  fileName={fileName}
+                  files={files}
+                  hasGraph={hasGraph}
+                  onInitializeCanvas={onInitializeCanvas}
+                  onExport={onExport}
+                  onExportHtml={onExportHtml}
+                  canExportCanvas={canExportCanvas}
+                  showFiles={results.some((item) => item.id === "files")}
+                  showSession={results.some((item) => item.id === "session")}
+                />
+              ) : null}
 
-            {shownChapter === "ai" ? (
-              <AiSettingsPanel
-                aiSettings={aiSettings}
-                aiBusy={aiBusy || aiConnectionStatus === "testing"}
-                providerMenuOpen={providerMenuOpen}
-                aiConnectionStatus={aiConnectionStatus}
-                onProviderMenuOpenChange={setProviderMenuOpen}
-                onAiConnectionTestClick={handleAiConnectionTestClick}
-                onAiSettingsChange={onAiSettingsChange}
-              />
-            ) : null}
+              {shownChapter === "chart" || shownChapter === "appearance" || shownChapter === "layout" ? (
+                <AppearanceSettings
+                  key={chartType}
+                  view={shownChapter}
+                  query={query}
+                  chartType={chartType}
+                  sankeyUnavailableReason={sankeyUnavailableReason}
+                  onChartTypeChange={onChartTypeChange}
+                  layoutMode={layoutMode}
+                  appearance={appearance}
+                  showNodeDetail={showNodeDetail}
+                  hideNodeBorders={hideNodeBorders}
+                  alignNodeWidthsToMax={alignNodeWidthsToMax}
+                  appearanceCssDraft={appearanceCssDraft}
+                  titleFontSize={titleFontSize}
+                  onAppearanceCssDraftChange={setAppearanceCssDraft}
+                  timelineControls={timelineControls}
+                  onLayoutModeChange={onLayoutModeChange}
+                  onLayoutAppearanceChange={onLayoutAppearanceChange}
+                  onAppearanceCssVarChange={onAppearanceCssVarChange}
+                  onAppearanceCssChange={onAppearanceCssChange}
+                  onAppearanceDisplayChange={onAppearanceDisplayChange}
+                  onAppearancePresetChange={onAppearancePresetChange}
+                  onAppearanceReset={onAppearanceReset}
+                  onAppearanceExport={onAppearanceExport}
+                  onAppearanceImportClick={onAppearanceImportClick}
+                  onAppearanceImportChange={onAppearanceImportChange}
+                  onNodeDetailToggle={onNodeDetailToggle}
+                  onNodeBordersToggle={onNodeBordersToggle}
+                  onNodeWidthAlignToggle={onNodeWidthAlignToggle}
+                  onSectionReset={onSectionReset}
+                  onPreviewModeChange={setPreviewMode}
+                />
+              ) : null}
+
+              {shownChapter === "ai" ? (
+                <AiSettingsPanel
+                  aiSettings={aiSettings}
+                  aiBusy={aiBusy || aiConnectionStatus === "testing"}
+                  providerMenuOpen={providerMenuOpen}
+                  aiConnectionStatus={aiConnectionStatus}
+                  onProviderMenuOpenChange={setProviderMenuOpen}
+                  onAiConnectionTestClick={handleAiConnectionTestClick}
+                  onAiSettingsChange={onAiSettingsChange}
+                  showConnection={results.some((item) => item.id === "ai-connection")}
+                  showAdvanced={results.some((item) => item.id === "ai-advanced")}
+                  expandAdvanced={Boolean(query.trim())}
+                />
+              ) : null}
+            </div>
           </div>
         </div>
         <footer className="settings-footer">
-          <span>Preferences are saved in this browser.</span>
-          <button className="studio-button primary" onClick={onClose}>
-            Done
-          </button>
+          <div className="settings-status-stack" role="status">
+            {cssPending && (
+              <span className="settings-pending-status">
+                CSS draft not applied · Use Apply CSS in Appearance → Advanced
+              </span>
+            )}
+            {!preferencesSaved ? (
+              <span className="setting-error">Applied settings could not be saved in this browser.</span>
+            ) : !cssPending ? (
+              <span className="settings-save-status">Saved automatically in this browser</span>
+            ) : null}
+          </div>
+          <div className="settings-footer-actions">
+            {visualChapter && (
+              <>
+                <button
+                  type="button"
+                  className="studio-button"
+                  disabled={!canUndoAppearance}
+                  onClick={onAppearanceUndo}
+                >
+                  Undo style
+                </button>
+                <button
+                  type="button"
+                  className="studio-button"
+                  disabled={!canRedoAppearance}
+                  onClick={onAppearanceRedo}
+                >
+                  Redo
+                </button>
+              </>
+            )}
+            <button className="studio-button primary" onClick={onClose}>
+              Done
+            </button>
+          </div>
         </footer>
       </section>
     </div>,
     document.body,
   );
-}
-
-function buildCssVarDrafts(appearance: GraphAppearance): Record<string, string> {
-  return Object.fromEntries(APPEARANCE_TOKEN_CONTROLS.map((token) => [token.key, appearance.cssVars[token.key] || ""]));
 }
