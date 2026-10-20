@@ -36,21 +36,60 @@
         "timeline": {
           "type": "object",
           "description": "An optional view hint. Timeline preserves the v3 graph and its original edges.",
-          "required": [
-            "version"
-          ],
           "properties": {
-            "version": {
-              "const": 1
-            },
             "timeZone": {
               "const": "UTC"
             },
             "asOf": {
               "$ref": "#/$defs/timelineDate"
+            },
+            "clock": {
+              "type": "object",
+              "required": [
+                "mode"
+              ],
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "calendar",
+                    "relative"
+                  ]
+                },
+                "unit": {
+                  "enum": [
+                    "unit",
+                    "second",
+                    "minute",
+                    "hour",
+                    "day",
+                    "week",
+                    "cycle"
+                  ]
+                },
+                "origin": {
+                  "type": "string"
+                },
+                "format": {
+                  "enum": [
+                    "offset",
+                    "elapsed"
+                  ]
+                },
+                "precision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 12
+                }
+              },
+              "additionalProperties": false
             }
           },
-          "additionalProperties": true
+          "additionalProperties": false
+        },
+        "style": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Relative path to a graph-studio-style JSON file, resolved from this graph within the opened workspace. Appearance and layout settings belong in that file."
         }
       }
     },
@@ -69,37 +108,27 @@
         "$ref": "#/$defs/edge"
       }
     },
-    "hierarchy": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "id",
-        "groups",
-        "parentById"
-      ],
-      "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "groups": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "title"
-            ],
-            "properties": {
-              "title": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "parentById": {
-          "type": "object",
-          "additionalProperties": {
+    "hierarchy_edges": {
+      "type": "array",
+      "description": "Containment edges: source is the parent node and target is the child. Single parent per child; no cycles.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "source",
+          "target"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target": {
             "type": "string",
             "minLength": 1
           }
@@ -162,9 +191,19 @@
         "time": {
           "$ref": "#/$defs/timelineTime"
         },
+        "space": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "One-based row index for horizontal timelines, column index for vertical timelines. Layout spacing determines the pixel distance; automatic layout never changes or compacts this index. Equal indices remain on the same row/column."
+        },
         "track": {
           "type": "string",
           "description": "Optional timeline track. Overlapping events may use adjacent subtracks."
+        },
+        "status": {
+          "type": "string",
+          "description": "Optional event status stored as node data."
         }
       },
       "additionalProperties": true
@@ -224,12 +263,24 @@
                   ]
                 },
                 "sourceTime": {
-                  "$ref": "#/$defs/timelineDate",
-                  "description": "Explicit time within the source interval, overriding sourceAnchor."
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/timelineDate"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 },
                 "targetTime": {
-                  "$ref": "#/$defs/timelineDate",
-                  "description": "Explicit time within the target interval, overriding targetAnchor."
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/timelineDate"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
                 }
               },
               "additionalProperties": true
@@ -245,7 +296,7 @@
     },
     "timelineTime": {
       "type": "object",
-      "description": "Instant or interval. Explicit null end means ongoing. Missing time is allowed; malformed imported times are shown in the undated area for correction.",
+      "description": "Calendar strings or relative numeric coordinates in metadata.timeline.clock.unit. No calendar conversion for numeric values. An explicit null end is calendar-only.",
       "oneOf": [
         {
           "required": [
@@ -256,7 +307,10 @@
               "$ref": "#/$defs/timelineDate"
             },
             "start": false,
-            "end": false
+            "end": false,
+            "basis": {
+              "const": "calendar"
+            }
           }
         },
         {
@@ -278,6 +332,42 @@
                   "type": "null"
                 }
               ]
+            },
+            "basis": {
+              "const": "calendar"
+            }
+          }
+        },
+        {
+          "required": [
+            "at"
+          ],
+          "properties": {
+            "basis": {
+              "const": "relative"
+            },
+            "at": {
+              "type": "number"
+            },
+            "start": false,
+            "end": false
+          }
+        },
+        {
+          "required": [
+            "start",
+            "end"
+          ],
+          "properties": {
+            "basis": {
+              "const": "relative"
+            },
+            "at": false,
+            "start": {
+              "type": "number"
+            },
+            "end": {
+              "type": "number"
             }
           }
         }

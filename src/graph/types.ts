@@ -26,14 +26,14 @@ export interface GraphDocument {
   metadata?: Record<string, unknown>;
   nodes: Record<NodeKey, RawGraphNode>;
   edges: GraphEdge[];
-  hierarchy?: GraphHierarchy;
+  hierarchy_edges?: HierarchyEdge[];
 }
 
-export interface GraphHierarchy {
+/** Containment only: source is the parent node, target is its direct child. */
+export interface HierarchyEdge {
   id: string;
-  groups: Record<string, { title: string }>;
-  /** Missing entries belong to the implicit root. Only groups may be parents. */
-  parentById: Record<string, string>;
+  source: NodeKey;
+  target: NodeKey;
 }
 
 export interface CompoundView {
@@ -80,7 +80,7 @@ export function getGraphLayoutLabel(mode: GraphRenderMode): string {
     case "timeline":
       return "Timeline · UTC";
     case "compound":
-      return "Nested node-link · ELK";
+      return "Nested node-link";
     case "sankey":
       return "Sankey flow";
     case "sugiyama":

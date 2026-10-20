@@ -1,3 +1,4 @@
+import { getTimelineClock } from "../graph/timelineClock";
 import Icon from "./ui/Icon";
 import { useEffect, useState } from "react";
 import type { RelativeLinkRoot } from "../adapters/relativeLinks";
@@ -216,6 +217,7 @@ export default function NodeDetailModal({
           >
             {showTimeEditor && (
               <NodeTimeEditor
+                clock={getTimelineClock(graph?.metadata)}
                 time={getDraftValue("time")}
                 track={getDraftValue("track")}
                 readOnly={!isEditing}
@@ -397,7 +399,12 @@ export default function NodeDetailModal({
   }
 
   function saveValidated(nextKey: NodeKey, patch: Record<string, unknown>) {
-    const timeError = getTimelineEditError(node ?? undefined, patch, timelineReferenceTime);
+    const timeError = getTimelineEditError(
+      node ?? undefined,
+      patch,
+      timelineReferenceTime,
+      getTimelineClock(graph?.metadata),
+    );
     if (timeError) {
       setError(timeError);
       return;

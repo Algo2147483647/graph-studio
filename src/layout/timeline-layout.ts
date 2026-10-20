@@ -1,4 +1,8 @@
+import { getTimelineClock } from "../graph/timelineClock";
+import { orientTimelineStage } from "./timeline-orientation";
 import { getNodeType } from "../graph/accessors";
+import { timelineTypeColor } from "../graph/timelineColors";
+import { buildCategoryColorMap, normalizeTypeLabel } from "../graph/categoryColors";
 import { DEFAULT_GRAPH_APPEARANCE } from "../graph/appearance";
 import { getTimelineRelation, parseNodeTimeline, parseTimelineDate, type ParsedTimelineTime } from "../graph/timeline";
 import { collectDescendantKeys } from "../graph/traversal";
@@ -7,11 +11,7 @@ import { stageTitleFont, type StageAppearance } from "./appearance";
 import { resolveStageSelection } from "./selection";
 import { estimateTextWidth, getNodeVisual, wrapDetailText, measureText, fitMeasuredText } from "./text";
 import type { StageData, StageEdge, StageNode, StageRoutePoint, StageTimelineData } from "./types";
-import {
-  getDocumentTimelineSettings,
-  sanitizeTimelineSettings,
-  type TimelineViewSettings,
-} from "../graph/timelineSettings";
+import { sanitizeTimelineSettings, type TimelineViewSettings } from "../graph/timelineSettings";
 import { createTimelineAxis, extendTimelineAxis, timelineTimeToY, type TimelineAxisMap } from "./timeline-axis";
 import { getTimelineAxisTicks } from "./timeline-ticks";
 import { arrangeTimelineFlow } from "./timeline-flow";
@@ -45,9 +45,19 @@ export function buildTimelineStage(input: {
 }): StageData | null {
   const { dag, appearance = DEFAULT_GRAPH_APPEARANCE, showNodeDetail = false } = input;
   const settings = sanitizeTimelineSettings({
-    ...getDocumentTimelineSettings(dag.metadata),
     ...input.timelineSettings,
   });
+  const clock = getTimelineClock(dag.metadata);
+  const colorSource = Object.values((input.axisSource ?? dag).nodes);
+  const typePalette = buildCategoryColorMap(colorSource.map(getNodeType));
+  const trackPalette = buildCategoryColorMap(
+    colorSource.map((node) =>
+      settings.layout === "flow" ? getNodeType(node) || "Events" : String(node.track || "Events"),
+    ),
+  );
+  const relative = clock.mode === "relative";
+  const baseSpan = relative ? Math.max(1, settings.relativeTickStep) : DAY;
+  const intervalWidth = Math.max(0, settings.intervalWidth);
   const flow = settings.layout === "flow";
   if (!Object.keys(dag.nodes).length) return null;
   if (
@@ -58,7 +68,7 @@ export function buildTimelineStage(input: {
   const rangeStart = input.timeRange?.start;
   const rangeEnd = input.timeRange?.end;
   const isValidBound = (value: number | undefined) =>
-    value === undefined || (Number.isFinite(value) && Math.abs(value) <= 8.64e15);
+    value === undefined || (Number.isFinite(value) && (relative || Math.abs(value) <= 8.64e15));
   if (
     !isValidBound(rangeStart) ||
     !isValidBound(rangeEnd) ||
@@ -67,7 +77,7 @@ export function buildTimelineStage(input: {
     return null;
   const filtered = rangeStart !== undefined || rangeEnd !== undefined;
   const theme = appearance.layout;
-  const titleFont = { ...stageTitleFont(appearance), size: 13, style: "normal" };
+  const titleFont = { ...stageTitleFont(appearance), size: 13 };
   const selection = resolveStageSelection(
     {
       ...dag,
@@ -89,10 +99,10 @@ export function buildTimelineStage(input: {
     metadata && typeof metadata === "object" && !Array.isArray(metadata)
       ? parseTimelineDate((metadata as Record<string, unknown>).asOf)?.timestamp
       : undefined;
-  const now = input.now ?? asOf ?? Date.now();
+  const now = input.now ?? asOf ?? (relative ? 0 : Date.now());
   const selectedEntries: TimelineEntry[] = selectedKeys.map((key) => ({
     key,
-    time: parseNodeTimeline(dag.nodes[key], now),
+    time: parseNodeTimeline(dag.nodes[key], now, clock),
     track: flow
       ? getNodeType(dag.nodes[key]) || "Events"
       : typeof dag.nodes[key].track === "string" && String(dag.nodes[key].track).trim()
@@ -135,34 +145,34 @@ export function buildTimelineStage(input: {
   const dated = entries.filter((entry) => entry.time.status === "dated");
   const undated = entries.filter((entry) => entry.time.status !== "dated");
   const axisEntries = input.axisSource
-    ? Object.values(input.axisSource.nodes).map((node) => parseNodeTimeline(node, now))
+    ? Object.values(input.axisSource.nodes).map((node) => parseNodeTimeline(node, now, clock))
     : dated.map((entry) => entry.time);
   const timestamps = axisEntries.flatMap((time) =>
     time.status === "dated" ? (time.start === time.end ? [time.start] : [time.start, time.end]) : [],
   );
   for (const edge of (input.axisSource ?? dag).edges) {
-    const relation = getTimelineRelation(edge.metadata);
+    const relation = getTimelineRelation(edge.metadata, relative);
     for (const [key, time] of [
       [edge.source, relation.sourceTime],
       [edge.target, relation.targetTime],
     ] as const) {
       if (time === undefined) continue;
       const node = (input.axisSource ?? dag).nodes[key];
-      const parsed = node && parseNodeTimeline(node, now);
+      const parsed = node && parseNodeTimeline(node, now, clock);
       if (parsed?.status === "dated" && time >= parsed.start && time <= parsed.end) timestamps.push(time);
     }
   }
   let start = rangeStart ?? (timestamps.length ? Math.min(...timestamps) : null);
   let end = rangeEnd ?? (timestamps.length ? Math.max(...timestamps) : null);
   if (!filtered && start !== null && end === start) {
-    start -= DAY / 2;
-    end += DAY / 2;
+    start -= baseSpan / 2;
+    end += baseSpan / 2;
   }
   const labelWidth = Math.max(0, theme.maxNodeWidth);
   const labelStep = Math.max(showNodeDetail ? 60 : 44, theme.nodeHeight * 0.58 + theme.rowGap * 0.2);
   const trackCounts = new Map<string, number>();
   for (const node of Object.values(input.axisSource?.nodes ?? dag.nodes)) {
-    if (parseNodeTimeline(node, now).status !== "dated") continue;
+    if (parseNodeTimeline(node, now, clock).status !== "dated") continue;
     const track = typeof node.track === "string" && node.track.trim() ? node.track.trim() : "Events";
     trackCounts.set(track, (trackCounts.get(track) ?? 0) + 1);
   }
@@ -174,7 +184,7 @@ export function buildTimelineStage(input: {
   const axisMap =
     start !== null && end !== null
       ? input.timelineAxis && input.timelineAxis.mode === settings.axis
-        ? extendTimelineAxis(input.timelineAxis, start, end, top)
+        ? extendTimelineAxis(input.timelineAxis, start, end, top, baseSpan)
         : createTimelineAxis({
             start,
             end,
@@ -189,10 +199,10 @@ export function buildTimelineStage(input: {
     start = axisMap.start;
     end = axisMap.end;
   }
-  const scale = axisMap ? axisMap.height / (axisMap.end - axisMap.start || DAY) : 0;
+  const scale = axisMap ? axisMap.height / (axisMap.end - axisMap.start || baseSpan) : 0;
   const yAt = (time: number) => (axisMap ? timelineTimeToY(axisMap, time) : top);
   const tickInterval =
-    settings.axis === "linear" && settings.tickUnit !== "auto"
+    !relative && settings.axis === "linear" && settings.tickUnit !== "auto"
       ? { step: settings.tickStep, unit: settings.tickUnit }
       : undefined;
   dated.forEach((entry) => {
@@ -218,46 +228,81 @@ export function buildTimelineStage(input: {
   const nodeMap: Record<NodeKey, StageNode> = Object.create(null);
   const stageTracks: StageTimelineData["tracks"] = [];
   const axisX = 160;
-  let trackX = Math.max(axisX + 54, theme.stagePaddingX + 120);
+  const pointSize = settings.pointMarker.visible ? settings.pointMarker.size : 0;
+  const minimumCross = axisX + Math.max(54, Math.max(intervalWidth, pointSize) / 2 + 24);
+  const markerWidth = Math.max(0, ...entries.map((entry) => (entry.time.kind === "range" ? intervalWidth : pointSize)));
+  const channelStep = Math.max(markerWidth, (55.2 + settings.nodeGap) * Math.max(0, settings.horizontalSpread));
+  // space is a one-based row/column index shared across tracks, not a pixel coordinate.
+  const fixedPositions: Record<string, number> = Object.create(null);
+  for (const entry of entries) {
+    const space = dag.nodes[entry.key].space;
+    if (typeof space === "number" && Number.isSafeInteger(space) && space >= 1)
+      fixedPositions[entry.key] = minimumCross + (space - 1) * channelStep;
+  }
+  const fixedEntries = dated.filter((entry) => fixedPositions[entry.key] !== undefined);
+  let trackX = Math.max(minimumCross, theme.stagePaddingX + 120);
   let lastLabelBottom = axisMap ? axisMap.originY + axisMap.height : top;
   const topLevel = new Set(selection.topLevelKeys);
   const labelColumns = new Map<string, number>();
   for (const track of tracks) {
-    const channelStep = (55.2 + settings.nodeGap) * settings.horizontalSpread;
     const channelsWidth = ((channelCounts.get(track) || 1) - 1) * channelStep;
-    const color = trackColor(track);
+    const color = trackPalette.get(normalizeTypeLabel(track) ?? "")?.pinCore ?? "#64748b";
     const events = entries.filter((entry) => entry.track === track).sort(compareEntries);
-    const labelX = trackX + channelsWidth + 32;
+    // Reserve explicit coordinates before placing automatic nodes, including other tracks' fixed events.
+    const physicalPositions =
+      !flow && Object.keys(fixedPositions).length
+        ? assignTimelineChannels({
+            events: [
+              ...dated.filter((entry) => entry.track === track),
+              ...fixedEntries.filter((entry) => entry.track !== track),
+            ].map((entry) => ({ key: entry.key, start: entry.startY, end: entry.endY })),
+            edges: sourceEdges,
+            minimum: trackX + 10,
+            step: channelStep,
+            fixedPositions,
+          })
+        : undefined;
+    const labelX = Math.max(
+      trackX + channelsWidth + 32,
+      ...events.map((event) => (physicalPositions?.get(event.key) ?? trackX) + 22),
+    );
     labelColumns.set(track, labelX);
     for (const event of events) {
       const labelY = event.startY + 3;
-      const x = trackX + event.lane * channelStep + 10;
+      const x = physicalPositions?.get(event.key) ?? trackX + event.lane * channelStep + 10;
       nodeMap[event.key] = createNode(event, x, labelX, labelY, color);
     }
     const trackNodes = events.map((entry) => nodeMap[entry.key]);
     // Reserve a wider text column without changing the event label's own size.
-    const textWidth = Math.max(...trackNodes.map((node) => node.width)) * 1.8 + 79.2;
+    const textWidth =
+      settings.orientation === "horizontal"
+        ? Math.max(72, intervalWidth + 24)
+        : Math.max(intervalWidth + 24, Math.max(...trackNodes.map((node) => node.width)) * 1.8 + 79.2);
     const width = Math.max(
-      channelsWidth + textWidth * Math.max(1, settings.horizontalSpread),
-      estimateTextWidth(track, 12) + 20,
+      channelsWidth + markerWidth,
+      Math.max(channelsWidth + textWidth * Math.max(1, settings.horizontalSpread), estimateTextWidth(track, 12) + 20) *
+        Math.min(1, Math.max(0, settings.horizontalSpread)),
     );
     stageTracks.push({ id: track, label: track, x: trackX, width, color });
-    if (!flow) {
+    if (!flow && settings.orientation !== "horizontal") {
       const datedNodes = trackNodes.filter((node) => node.timeline!.status === "dated");
       packTimelineTrackLabels(datedNodes, top + 3);
       for (const node of datedNodes) lastLabelBottom = Math.max(lastLabelBottom, timelineLabelBox(node).bottom);
     }
-    trackX += width + TRACK_GAP * settings.horizontalSpread;
+    trackX =
+      (physicalPositions ? Math.max(trackX + width, labelX + textWidth) : trackX + width) +
+      TRACK_GAP * settings.horizontalSpread;
   }
   let flowWidth = 0;
   if (flow) {
     const arranged = arrangeTimelineFlow({
       nodes: dated.map((entry) => nodeMap[entry.key]),
       edges: sourceEdges.filter((edge) => nodeMap[edge.source] && nodeMap[edge.target]),
-      minimumX: axisX + 54,
+      minimumX: minimumCross,
       gap: settings.nodeGap,
       spread: settings.horizontalSpread,
       pins: settings.pins,
+      packLabels: settings.orientation !== "horizontal",
     });
     flowWidth = arranged.width;
     lastLabelBottom = Math.max(axisMap ? axisMap.originY + axisMap.height : top, arranged.bottom);
@@ -299,22 +344,42 @@ export function buildTimelineStage(input: {
           undatedNodes.some((node) => node.key === edge.source) &&
           undatedNodes.some((node) => node.key === edge.target),
       ),
-      minimumX: axisX + 54,
+      minimumX: minimumCross,
       gap: settings.nodeGap,
       spread: settings.horizontalSpread,
       pins: settings.pins,
+      packLabels: settings.orientation !== "horizontal",
     });
     flowWidth = Math.max(flowWidth, arranged.width);
     lastLabelBottom = Math.max(lastLabelBottom, arranged.bottom);
   }
   if (flow) stageTracks.length = 0;
+  // Explicit rows can move events away from their allocated track.
+  // Anchor guides and headings to the actual cross-axis extent.
+  for (const track of stageTracks) {
+    const members = Object.values(nodeMap).filter((node) => node.timeline!.track === track.id);
+    if (!members.length) continue;
+    const left = Math.min(...members.map((node) => node.x)) - 10;
+    const right = Math.max(...members.map((node) => node.x + (node.timeline!.barWidth ?? 12) / 2));
+    track.x = left;
+    track.width = Math.max(track.width, right - left);
+  }
   let stageWidth = Math.max(600, flow ? flowWidth : trackX - TRACK_GAP * settings.horizontalSpread + 64);
   let stageHeight = Math.max(360, lastLabelBottom + 80);
   const nodes = entries
     .slice()
     .sort(compareEntries)
     .map((entry) => nodeMap[entry.key]);
-  const edges = sourceEdges.map((edge, index) => routeEdge(edge, index, nodeMap, stageTracks, axisMap, warnings));
+  for (const node of nodes) {
+    stageWidth = Math.max(
+      stageWidth,
+      node.x + (node.timeline!.barWidth ?? 12) / 2 + 48,
+      timelineLabelBox(node).right + 48,
+    );
+  }
+  const edges = sourceEdges.map((edge, index) =>
+    routeEdge(edge, index, nodeMap, stageTracks, axisMap, warnings, settings.edgeRouting),
+  );
   for (const edge of edges)
     for (const point of edge.points ?? []) {
       stageWidth = Math.max(stageWidth, point.x + 40);
@@ -325,46 +390,71 @@ export function buildTimelineStage(input: {
     connectedKeysByNode.get(edge.source)!.add(edge.target);
     connectedKeysByNode.get(edge.target)!.add(edge.source);
   });
-  return {
-    dag: dag.nodes,
-    layoutMode: "timeline",
-    root: selection.rootKey,
-    selection,
-    topLevelKeys: selection.topLevelKeys,
-    isForest: selection.isForest,
-    nodeMap,
-    nodes,
-    edges,
-    connectedKeysByNode,
-    lanes: stageTracks.map((track, layer) => ({
-      layer,
-      label: track.label,
-      x: track.x + track.width / 2,
-      width: track.width,
-    })),
-    stageWidth,
-    stageHeight,
-    warnings,
-    timeline: {
-      layout: settings.layout,
-      axisMap,
-      tickInterval,
-      axisX,
-      originY: axisMap?.originY ?? top,
-      filtered: filtered || undefined,
-      start,
-      end,
-      pixelsPerMillisecond: scale,
-      ticks: axisMap
-        ? getTimelineAxisTicks(axisMap, axisMap.originY, axisMap.originY + axisMap.height, 1, tickInterval)
-        : [],
-      tracks: stageTracks,
-      undatedY,
-      timeZone: "UTC",
+  return orientTimelineStage(
+    {
+      dag: dag.nodes,
+      layoutMode: "timeline",
+      root: selection.rootKey,
+      selection,
+      topLevelKeys: selection.topLevelKeys,
+      isForest: selection.isForest,
+      nodeMap,
+      nodes,
+      edges,
+      connectedKeysByNode,
+      lanes: stageTracks.map((track, layer) => ({
+        layer,
+        label: track.label,
+        x: track.x + track.width / 2,
+        width: track.width,
+      })),
+      stageWidth,
+      stageHeight,
+      warnings,
+      timeline: {
+        clock,
+        relativeTickStep: settings.relativeTickStep,
+        layout: settings.layout,
+        edgeRouting: settings.edgeRouting,
+        axisMap,
+        tickInterval,
+        axisX,
+        originY: axisMap?.originY ?? top,
+        filtered: filtered || undefined,
+        start,
+        end,
+        pixelsPerUnit: scale,
+        ticks: axisMap
+          ? getTimelineAxisTicks(
+              axisMap,
+              axisMap.originY,
+              axisMap.originY + axisMap.height,
+              1,
+              tickInterval,
+              clock,
+              settings.relativeTickStep,
+            )
+          : [],
+        tracks: stageTracks,
+        undatedY,
+        timeZone: relative ? null : "UTC",
+      },
     },
-  };
+    settings.orientation,
+  );
 
   function createNode(entry: TimelineEntry, x: number, labelX: number, labelY: number, color: string): StageNode {
+    const type = getNodeType(dag.nodes[entry.key]);
+    const hasCustomColor =
+      settings.colorBy === "type" &&
+      Object.prototype.hasOwnProperty.call(settings.typeColors, type) &&
+      Boolean(settings.typeColors[type]);
+    const colorTokens = hasCustomColor
+      ? undefined
+      : settings.colorBy === "type"
+        ? typePalette.get(normalizeTypeLabel(type) ?? "")
+        : trackPalette.get(normalizeTypeLabel(entry.track) ?? "");
+    if (settings.colorBy === "type") color = timelineTypeColor(type, settings.typeColors, typePalette);
     const visual = getNodeVisual(
       entry.key,
       dag.nodes[entry.key],
@@ -375,10 +465,21 @@ export function buildTimelineStage(input: {
       titleFont,
     );
     const time = entry.time;
+    const space = dag.nodes[entry.key].space as number | undefined;
+    if (space !== undefined) {
+      x = fixedPositions[entry.key];
+      labelX = x + 22;
+    }
     const contentWidth = !showNodeDetail
       ? Math.min(labelWidth, Math.max(110, measureText(visual.title, titleFont) + 16, time.label.length * 6.1 + 12))
       : labelWidth;
-    const displayTitle = fitMeasuredText(visual.title, contentWidth - 6, titleFont);
+    const inside = time.kind === "range" && settings.intervalTitle === "inside";
+    const insideWidth = settings.orientation === "horizontal" ? entry.endY - entry.startY : intervalWidth;
+    const displayTitle = fitMeasuredText(
+      visual.title,
+      inside ? Math.max(0, insideWidth - 16) : contentWidth - 6,
+      titleFont,
+    );
     const isDated = time.status === "dated";
     return {
       key: entry.key,
@@ -389,12 +490,33 @@ export function buildTimelineStage(input: {
       detail: visual.detail,
       detailLines: showNodeDetail && visual.detail ? wrapDetailText(visual.detail, labelWidth, 1) : [],
       typeLabel: getNodeType(dag.nodes[entry.key]) || undefined,
+      colorTokens,
       width: contentWidth,
       height: Math.max(36, entry.endY - entry.startY),
       isRoot: topLevel.has(entry.key),
       x,
       y: entry.startY,
       timeline: {
+        intervalTitle: settings.intervalTitle,
+        intervalAlign: settings.intervalAlign,
+        intervalStyle: settings.intervalStyle,
+        intervalBorder: settings.intervalBorder,
+        intervalBorderWidth: settings.intervalBorderWidth,
+        intervalBorderColor: settings.intervalBorderColor,
+        intervalRadius: settings.intervalRadius,
+        intervalTextColor: settings.intervalTextColor,
+        intervalTextColorMode: settings.intervalTextColorMode,
+        pointMarker: settings.pointMarker,
+        anchorMarker: settings.anchorMarker,
+        pointTextColor: settings.pointTextColor,
+        pointDateVisible: settings.pointDateVisible,
+        pointDateColor: settings.pointDateColor,
+        leaderStyle: settings.leaderStyle,
+        leaderColor: settings.leaderColor,
+        leaderWidth: settings.leaderWidth,
+        minimumCross,
+        space,
+        barWidth: time.kind === "range" ? intervalWidth : settings.pointMarker.visible ? settings.pointMarker.size : 0,
         status: time.status,
         kind: time.kind,
         start: isDated ? time.start : null,
@@ -425,8 +547,9 @@ export function routeTimelineEdge(
   tracks: StageTimelineData["tracks"],
   axis?: TimelineAxisMap,
   warnings: string[] = [],
+  routing: TimelineViewSettings["edgeRouting"] = "avoid",
 ): StageEdge {
-  return routeEdge(edge, index, nodes, tracks, axis, warnings);
+  return routeEdge(edge, index, nodes, tracks, axis, warnings, routing);
 }
 
 function routeEdge(
@@ -436,10 +559,11 @@ function routeEdge(
   tracks: StageTimelineData["tracks"],
   axis?: TimelineAxisMap,
   warnings: string[] = [],
+  routing: TimelineViewSettings["edgeRouting"] = "avoid",
 ): StageEdge {
   const source = nodes[edge.source];
   const target = nodes[edge.target];
-  const relation = getTimelineRelation(edge.metadata);
+  const relation = getTimelineRelation(edge.metadata, source.timeline?.precision === "relative");
   function anchor(node: StageNode, position: "start" | "end", time: number | undefined) {
     const data = node.timeline!;
     if (
@@ -462,41 +586,55 @@ function routeEdge(
   const backward = sourceTime !== null && targetTime !== null && targetTime < sourceTime;
   const channel = 14 + (index % 5) * 4;
   const leftTrack = tracks.find((track) => track.id === (source.x < target.x ? source : target).timeline!.track);
-  const points = timelineRoute(
-    { x: source.x, y: sourceY },
-    { x: target.x, y: targetY },
-    Object.values(nodes).flatMap((node) => {
-      const time = node.timeline!;
-      const endpoint = node.key === source.key || node.key === target.key;
-      // Endpoints are allowed, but a long duration body must not become an edge corridor.
-      const top = time.startY + (endpoint ? 8 : -8);
-      const bottom = time.endY + (endpoint ? -8 : 8);
-      const boxes: RouteObstacle[] = [];
-      if (top < bottom) {
-        const cuts = [
-          top,
-          ...(node.key === source.key ? [sourceY - 10, sourceY + 10] : []),
-          ...(node.key === target.key ? [targetY - 10, targetY + 10] : []),
-          bottom,
+  const points =
+    routing === "direct"
+      ? [
+          { x: source.x, y: sourceY },
+          { x: target.x, y: targetY },
         ]
-          .filter((y) => y >= top && y <= bottom)
-          .sort((a, b) => a - b);
-        for (let i = 0; i < cuts.length - 1; i++) {
-          const mid = (cuts[i] + cuts[i + 1]) / 2;
-          if (
-            (node.key === source.key && Math.abs(mid - sourceY) < 10) ||
-            (node.key === target.key && Math.abs(mid - targetY) < 10)
-          )
-            continue;
-          boxes.push({ left: node.x - 8, right: node.x + 8, top: cuts[i], bottom: cuts[i + 1] });
-        }
-      }
-      return boxes;
-    }),
-    Math.max(180, (leftTrack?.x ?? Math.min(source.x, target.x)) - channel),
-  );
+      : timelineRoute(
+          { x: source.x, y: sourceY },
+          { x: target.x, y: targetY },
+          Object.values(nodes).flatMap((node) => {
+            const time = node.timeline!;
+            const endpoint = node.key === source.key || node.key === target.key;
+            // Endpoints are allowed, but a long duration body must not become an edge corridor.
+            const top = time.startY + (endpoint ? 8 : -8);
+            const bottom = time.endY + (endpoint ? -8 : 8);
+            const boxes: RouteObstacle[] = [];
+            if (top < bottom) {
+              const cuts = [
+                top,
+                ...(node.key === source.key ? [sourceY - 10, sourceY + 10] : []),
+                ...(node.key === target.key ? [targetY - 10, targetY + 10] : []),
+                bottom,
+              ]
+                .filter((y) => y >= top && y <= bottom)
+                .sort((a, b) => a - b);
+              for (let i = 0; i < cuts.length - 1; i++) {
+                const mid = (cuts[i] + cuts[i + 1]) / 2;
+                if (
+                  (node.key === source.key && Math.abs(mid - sourceY) < 10) ||
+                  (node.key === target.key && Math.abs(mid - targetY) < 10)
+                )
+                  continue;
+                boxes.push({
+                  left: node.x - (time.barWidth ?? 12) / 2 - 2,
+                  right: node.x + (time.barWidth ?? 12) / 2 + 2,
+                  top: cuts[i],
+                  bottom: cuts[i + 1],
+                });
+              }
+            }
+            return boxes;
+          }),
+          Math.max(180, (leftTrack?.x ?? Math.min(source.x, target.x)) - channel),
+        );
   const path = roundedTimelinePath(points);
-  const middle = points[Math.floor(points.length / 2)];
+  const middle =
+    points.length === 2
+      ? { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 }
+      : points[Math.floor(points.length / 2)];
   return {
     id: edge.id,
     originalEdgeIds: [edge.id],
@@ -592,9 +730,4 @@ function compareEntries(a: TimelineEntry, b: TimelineEntry): number {
   const aTime = a.time.status === "dated" ? a.time.start : Infinity;
   const bTime = b.time.status === "dated" ? b.time.start : Infinity;
   return aTime - bTime || compareKeys(a.key, b.key);
-}
-function trackColor(track: string): string {
-  let hash = 0;
-  for (const character of track) hash = (hash * 31 + character.charCodeAt(0)) | 0;
-  return `hsl(${((hash % 360) + 360) % 360} 58% 43%)`;
 }

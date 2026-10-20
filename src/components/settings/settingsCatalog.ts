@@ -43,6 +43,46 @@ export function getSettingsCatalog(chart: GraphChartType): SettingItem[] {
   if (chart === "compound")
     add("nested", "layout", "Arrangement", "Nested layout", "compound elk group subgraph 嵌套 分组 排布");
   if (chart === "timeline") {
+    a(
+      "timeline-points",
+      "Nodes",
+      "Point events",
+      "instant marker shape size fill border 时间点 标记 形状 大小 填充 边框",
+    );
+    a("timeline-anchors", "Edges", "Time anchors", "endpoint port marker leader line 时间锚点 端点 连接点 引导线");
+    a(
+      "timeline-point-text",
+      "Text",
+      "Point text",
+      "instant title color date time label 时间点 文字 标题 颜色 日期 时间 标签",
+    );
+    a(
+      "timeline-interval-text",
+      "Text",
+      "Interval text",
+      "title placement alignment inside outside hidden font color 区间 文字 标题 位置 对齐 内部 外部 隐藏 字体 颜色",
+    );
+    add(
+      "timeline-routing",
+      "layout",
+      "Timeline",
+      "Connections",
+      "edge routing direct straight avoid obstacles 连线 直连 直线 避障 绕行",
+    );
+    add(
+      "timeline-colors",
+      "appearance",
+      "Nodes",
+      "Event colors",
+      "color by type track palette category point interval 按 类型 着色 配色 轨道 颜色",
+    );
+    add(
+      "timeline-intervals",
+      "appearance",
+      "Nodes",
+      "Interval bars",
+      "fill duration width thickness border radius color 填充 区间 宽度 厚度 边框 圆角 颜色",
+    );
     add(
       "timeline-arrangement",
       "layout",
@@ -55,7 +95,7 @@ export function getSettingsCatalog(chart: GraphChartType): SettingItem[] {
       "layout",
       "Timeline",
       "Time axis",
-      "tick unit interval adaptive compression lock fit 时间 刻度 单位 间隔 压缩 锁定",
+      "calendar tick unit interval adaptive compression lock fit 时间 刻度 单位 间隔 压缩 锁定",
     );
   }
   if (chart === "sankey") add("sankeyNodeWidth", "layout", "Flow", "Flow node width", "bar sankey 桑基 节点 宽度");
@@ -86,10 +126,16 @@ export function getSettingsCatalog(chart: GraphChartType): SettingItem[] {
     a("shadowOpacity", "Nodes", "Shadow opacity", "shadow alpha 阴影 透明度");
     a("hideNodeBorders", "Nodes", "Node borders", "outline 边框");
   }
-  if (chart !== "sankey") a("showNodeDetail", "Nodes", "Node descriptions", "detail visibility 描述 详情");
+  if (chart !== "sankey")
+    a("showNodeDetail", chart === "timeline" ? "Text" : "Nodes", "Node descriptions", "detail visibility 描述 详情");
   if (chart === "compound")
     a("showGroupStats", "Nodes", "Group statistics", "internal edges nodes counts 分组 统计 数量");
   if (chart === "compound") a("showGroupBorders", "Nodes", "Expanded group borders", "expanded subgraph outline");
+  if (chart === "compound") {
+    a("titleAlign", "Text", "Title alignment", "center left 标题 居中 对齐");
+    a("titleOverflow", "Text", "Title overflow", "truncate ellipsis clip 标题 截断 省略");
+    a("titleWrap", "Text", "Two-line title", "wrap 标题 换行 两行");
+  }
   if (chart === "sankey") a("sankeyLinkOpacity", "Edges", "Flow opacity", "bands alpha 桑基 流带 透明度");
   a("showEdgeLabels", "Edges", "Edge labels", "relation value 连线 标签");
   const colors =
@@ -133,9 +179,9 @@ export function getSettingsCatalog(chart: GraphChartType): SettingItem[] {
     );
   a("fontFamily", "Text", "Title font", "typography family 字体");
   a("fontWeight", "Text", "Bold title", "typography weight 粗体 字重");
+  a("fontStyle", "Text", "Italic title", "typography italic 斜体");
   if (chart !== "timeline") {
     a("fontSize", "Text", "Title size", "typography font size 字号");
-    a("fontStyle", "Text", "Italic title", "typography italic 斜体");
   }
   a("css", "Advanced", "Custom CSS", "stylesheet 高级 样式");
   a("configuration", "Advanced", "Appearance configuration", "import export reset 导入 导出 重置");

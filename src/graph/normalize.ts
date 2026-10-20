@@ -1,5 +1,5 @@
 import { indexGraphDocument } from "./graphIndex";
-import { validateHierarchy } from "./hierarchy";
+import { validateHierarchyEdges } from "./hierarchy";
 import { getSankeyError } from "./sankey";
 import type { GraphDocument, NormalizedDag, RawGraphNode } from "./types";
 
@@ -23,6 +23,11 @@ export function validateNodeFields(value: unknown, path: string): asserts value 
     if (value[name] !== undefined && typeof value[name] !== "string")
       throw new Error(`${path}/${name} must be a string.`);
   }
+  if (
+    value.space !== undefined &&
+    (typeof value.space !== "number" || !Number.isSafeInteger(value.space) || value.space < 1)
+  )
+    throw new Error(`${path}/space must be a positive safe integer (rows start at 1).`);
   validateJsonValue(value, path);
 }
 
@@ -44,7 +49,17 @@ export function normalizeDagInput(input: unknown): NormalizedDag {
   if (!isRecord(input) || input.format !== "graph-studio" || input.version !== 3) {
     throw new Error('Unsupported graph format. Expected format "graph-studio", version 3, with nodes and edges.');
   }
-  const allowed = new Set(["format", "version", "diagram", "id", "title", "metadata", "nodes", "edges", "hierarchy"]);
+  const allowed = new Set([
+    "format",
+    "version",
+    "diagram",
+    "id",
+    "title",
+    "metadata",
+    "nodes",
+    "edges",
+    "hierarchy_edges",
+  ]);
   if (input.diagram !== undefined && input.diagram !== "dag" && input.diagram !== "sankey")
     throw new Error('/diagram must be "dag" or "sankey".');
   for (const name of Object.keys(input))
@@ -52,6 +67,16 @@ export function normalizeDagInput(input: unknown): NormalizedDag {
   for (const name of ["id", "title"])
     if (input[name] !== undefined && typeof input[name] !== "string") throw new Error(`/${name} must be a string.`);
   if (input.metadata !== undefined && !isRecord(input.metadata)) throw new Error("/metadata must be an object.");
+  const timeline = isRecord(input.metadata) ? input.metadata.timeline : undefined;
+  if (timeline !== undefined) {
+    if (!isRecord(timeline)) throw new Error("/metadata/timeline must be an object.");
+    for (const key of Object.keys(timeline)) {
+      if (!["timeZone", "asOf", "clock"].includes(key))
+        throw new Error(
+          `Unknown timeline field /metadata/timeline/${key}. Store view and appearance settings in the linked style file.`,
+        );
+    }
+  }
   if (!isRecord(input.nodes)) throw new Error("/nodes must be an object keyed by node ID.");
   if (!Array.isArray(input.edges)) throw new Error("/edges must be an array.");
   const nodes = input.nodes;
@@ -86,7 +111,8 @@ export function normalizeDagInput(input: unknown): NormalizedDag {
     if (edge.metadata !== undefined && !isRecord(edge.metadata)) throw new Error(`${path}/metadata must be an object.`);
   });
   validateJsonValue(input, "");
-  if (input.hierarchy !== undefined) validateHierarchy(input.hierarchy, nodes as GraphDocument["nodes"]);
+  if (input.hierarchy_edges !== undefined)
+    validateHierarchyEdges(input.hierarchy_edges, nodes as GraphDocument["nodes"]);
   if (input.diagram === "sankey") {
     const error = getSankeyError(nodes as GraphDocument["nodes"], input.edges as unknown as GraphDocument["edges"]);
     if (error) throw new Error(error);

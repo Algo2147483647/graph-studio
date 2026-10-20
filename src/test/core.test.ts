@@ -1,3 +1,4 @@
+import { timelineRelativeSuite } from "./timelineRelative.test";
 import { stylePipelineSuite } from "./stylePipeline.test";
 import { timelineAxisSuite } from "./timelineAxis.test";
 import { timelineFlowSuite } from "./timelineFlow.test";
@@ -32,6 +33,7 @@ import { scienceHistorySuite } from "./scienceHistory.test";
 import { nodeRelationsSuite } from "./nodeRelations.test";
 import { htmlExportSuite } from "./htmlExport.test";
 import { nodeLinkDefaultsSuite } from "./nodeLinkDefaults.test";
+import { timelinePresetsSuite } from "./timelinePresets.test";
 
 async function main() {
   const { passed, failed } = await runSuites([
@@ -45,6 +47,7 @@ async function main() {
     settingsSuite,
     htmlExportSuite,
     nodeLinkDefaultsSuite,
+    timelinePresetsSuite,
     chartTypesSuite,
     graphSuite,
     importMergeSuite,
@@ -58,6 +61,7 @@ async function main() {
     sankeySuite,
     examplesSuite,
     mathematicsSuite,
+    timelineRelativeSuite,
     timelineAxisSuite,
     timelineFlowSuite,
     timelineViewSuite,

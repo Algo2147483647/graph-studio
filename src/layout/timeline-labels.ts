@@ -3,11 +3,25 @@ import type { StageNode } from "./types";
 export type TimelineLabelBox = { left: number; right: number; top: number; bottom: number };
 
 export function timelineMarkerBox(node: StageNode): TimelineLabelBox {
-  return { left: node.x - 10, right: node.x + 10, top: node.y - 10, bottom: node.timeline!.endY + 10 };
+  const time = node.timeline!;
+  const marker = time.kind === "range" ? time.anchorMarker : time.pointMarker;
+  const radius = marker && marker.visible ? marker.size / 2 : 0;
+  const temporal = Math.max(10, radius + 4);
+  const half = Math.max(10, (time.barWidth ?? 12) / 2 + 4, radius * (marker?.shape === "auto" ? 1.75 : 1) + 4);
+  if (node.timeline!.orientation === "horizontal")
+    return {
+      left: node.timeline!.startY - temporal,
+      right: node.timeline!.endY + temporal,
+      top: node.y - half,
+      bottom: node.y + half,
+    };
+  return { left: node.x - half, right: node.x + half, top: node.y - temporal, bottom: node.timeline!.endY + temporal };
 }
 
 export function timelineLabelBox(node: StageNode): TimelineLabelBox {
   const time = node.timeline!;
+  if (time.kind === "range" && time.intervalTitle !== undefined && time.intervalTitle !== "outside")
+    return timelineMarkerBox(node);
   return {
     left: time.labelX - 6,
     right: time.labelX + node.width + 6,
@@ -61,7 +75,12 @@ export function findFreeTimelineLabelPosition(
 
 /** A label column shares width across time. Pool adjacent collisions to minimize vertical displacement. */
 export function packTimelineTrackLabels(nodes: StageNode[], minimumY: number): void {
-  const sorted = nodes.slice().sort((a, b) => a.y - b.y || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const sorted = nodes
+    .filter(
+      (node) =>
+        node.timeline!.kind !== "range" || !node.timeline!.intervalTitle || node.timeline!.intervalTitle === "outside",
+    )
+    .sort((a, b) => a.y - b.y || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   const offsets: number[] = [];
   const blocks: { start: number; end: number; total: number; count: number }[] = [];
   for (const [index, node] of sorted.entries()) {

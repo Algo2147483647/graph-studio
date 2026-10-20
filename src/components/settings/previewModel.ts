@@ -1,3 +1,4 @@
+import { sanitizeTimelineClock, type TimelineClock } from "../../graph/timelineClock";
 import { normalizeDagInput } from "../../graph/normalize";
 import type { CompoundView, GraphChartType, GraphLayoutMode } from "../../graph/types";
 import { getStageAppearance } from "../../layout/appearance";
@@ -28,11 +29,14 @@ export const PREVIEW_GRAPHS = {
     format: "graph-studio",
     version: 3,
     nodes: {
-      web: { title: "Web app", define: "Customer requests" },
-      api: { title: "API", define: "Validate and dispatch" },
-      cache: { title: "Cache", define: "Frequently used records" },
-      database: { title: "Database", define: "Persistent records" },
-      partner: { title: "Partner", define: "External notifications" },
+      ...{
+        web: { title: "Web app", define: "Customer requests" },
+        api: { title: "API", define: "Validate and dispatch" },
+        cache: { title: "Cache", define: "Frequently used records" },
+        database: { title: "Database", define: "Persistent records" },
+        partner: { title: "Partner", define: "External notifications" },
+      },
+      ...{ app: { title: "Application" }, storage: { title: "Storage" } },
     },
     edges: [
       { id: "web-api", source: "web", target: "api", value: "request" },
@@ -42,11 +46,13 @@ export const PREVIEW_GRAPHS = {
       { id: "api-partner", source: "api", target: "partner", value: "notify" },
       { id: "partner-api", source: "partner", target: "api", value: "ack" },
     ],
-    hierarchy: {
-      id: "preview",
-      groups: { app: { title: "Application" }, storage: { title: "Storage" } },
-      parentById: { web: "app", api: "app", storage: "app", cache: "storage", database: "storage" },
-    },
+    hierarchy_edges: Object.entries({
+      web: "app",
+      api: "app",
+      storage: "app",
+      cache: "storage",
+      database: "storage",
+    }).map(([target, source]) => ({ id: `hierarchy:${target}`, source, target })),
   }),
   sankey: normalizeDagInput({
     format: "graph-studio",
@@ -71,15 +77,34 @@ export const PREVIEW_GRAPHS = {
     version: 3,
     metadata: { timeline: { asOf: "2026-05-20" } },
     nodes: {
-      launch: { title: "Kickoff", define: "Agree on scope", time: { at: "2026-05-01" }, track: "Delivery" },
+      launch: {
+        title: "Kickoff",
+        type: "Milestone",
+        define: "Agree on scope",
+        time: { at: "2026-05-01" },
+        track: "Delivery",
+      },
       build: {
         title: "Build",
+        type: "Phase",
         define: "Implement the release",
         time: { start: "2026-05-02", end: "2026-05-10" },
         track: "Delivery",
       },
-      review: { title: "Review", define: "Check acceptance criteria", time: { at: "2026-05-06" }, track: "Quality" },
-      ship: { title: "Release", define: "Ship the approved result", time: { at: "2026-05-12" }, track: "Delivery" },
+      review: {
+        title: "Review",
+        type: "Milestone",
+        define: "Check acceptance criteria",
+        time: { at: "2026-05-06" },
+        track: "Quality",
+      },
+      ship: {
+        title: "Release",
+        type: "Milestone",
+        define: "Ship the approved result",
+        time: { at: "2026-05-12" },
+        track: "Delivery",
+      },
     },
     edges: [
       { id: "launch-build", source: "launch", target: "build", value: "starts" },
@@ -100,6 +125,7 @@ export function previewGeometry(input: {
   alignNodeWidthsToMax: boolean;
   view: CompoundView;
   timelineSettings?: TimelineViewSettings;
+  timelineClock?: TimelineClock;
 }) {
   return {
     chartType: input.chartType,
@@ -110,6 +136,7 @@ export function previewGeometry(input: {
     showEdgeLabels: input.chartType === "compound" && input.appearance.display.showEdgeLabels,
     view: input.view,
     // Sample IDs never use the current document's pinned positions.
+    timelineClock: sanitizeTimelineClock(input.timelineClock),
     timelineSettings: sanitizeTimelineSettings({ ...input.timelineSettings, pins: {} }),
   };
 }
@@ -122,11 +149,31 @@ export function compoundPreviewInput(input: PreviewGeometry) {
 
 export function buildFlatPreviewStage(input: PreviewGeometry) {
   if (input.chartType === "compound") return null;
-  const shared = { ...input, dag: PREVIEW_GRAPHS[input.chartType], selection: { type: "full" as const } };
+  const shared = {
+    ...input,
+    dag: input.chartType === "timeline" ? timelinePreviewGraph(input.timelineClock) : PREVIEW_GRAPHS[input.chartType],
+    selection: { type: "full" as const },
+  };
   return input.chartType === "timeline"
     ? buildTimelineStage(shared)
     : buildStageData({
         ...shared,
         layoutMode: input.chartType === "sankey" ? "sankey" : (input.layoutMode as GraphLayoutMode),
       });
+}
+
+export function timelinePreviewGraph(clock: TimelineClock) {
+  if (clock.mode !== "relative") return PREVIEW_GRAPHS.timeline;
+  return normalizeDagInput({
+    format: "graph-studio",
+    version: 3,
+    metadata: { timeline: { clock } },
+    nodes: {
+      launch: { title: "Kickoff", type: "Milestone", time: { at: 0 }, track: "Delivery" },
+      build: { title: "Build", type: "Phase", time: { start: 1, end: 6 }, track: "Delivery", status: "active" },
+      review: { title: "Review", type: "Milestone", time: { at: 3.5 }, track: "Quality" },
+      ship: { title: "Release", type: "Milestone", time: { at: 8 }, track: "Delivery" },
+    },
+    edges: PREVIEW_GRAPHS.timeline.edges,
+  });
 }

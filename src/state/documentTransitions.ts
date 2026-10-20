@@ -1,5 +1,5 @@
 import { isTimelineDocument } from "../graph/timelineView";
-import { getDocumentTimelineSettings, sanitizeTimelineSettings } from "../graph/timelineSettings";
+import { sanitizeTimelineSettings } from "../graph/timelineSettings";
 import { type GraphAppState, createInitialGraphState, type EditTransaction } from "./initialState";
 import type { GraphAction } from "./graphActions";
 export function replaceDocument(
@@ -12,16 +12,18 @@ export function replaceDocument(
   return {
     ...initial,
     timelineSettings: sanitizeTimelineSettings({
-      ...state.timelineSettings,
+      ...(state.document.linkedStyle ? initial.timelineSettings : state.timelineSettings),
+      typeColors: {},
       pins: {},
       locked: false,
-      ...(loaded ? getDocumentTimelineSettings(action.dag.metadata) : {}),
+      ...(action.type === "graphLoaded" ? action.linkedStyle?.timeline : {}),
     }),
     dag: loaded ? action.dag : null,
     document: {
       id: loaded ? action.documentId : "",
       generation: state.document.generation + 1,
       savedDag: action.type === "graphLoaded" ? action.dag : null,
+      linkedStyle: action.type === "graphLoaded" ? action.linkedStyle : undefined,
     },
     source: loaded
       ? {
@@ -31,7 +33,7 @@ export function replaceDocument(
         }
       : initial.source,
     selection: loaded
-      ? action.dag.hierarchy || isTimelineDocument(action.dag)
+      ? action.dag.hierarchy_edges?.length || isTimelineDocument(action.dag)
         ? { type: "full" }
         : action.selection
       : null,
@@ -39,7 +41,7 @@ export function replaceDocument(
     chartType: loaded
       ? isTimelineDocument(action.dag)
         ? "timeline"
-        : action.dag.hierarchy
+        : action.dag.hierarchy_edges?.length
           ? "compound"
           : action.dag.diagram === "sankey"
             ? "sankey"

@@ -1,3 +1,5 @@
+import { getTimelineClock } from "../graph/timelineClock";
+import { getGroupNodes } from "../graph/hierarchy";
 import { type Dispatch, useEffect, useMemo, useState } from "react";
 import { getFullGraphSelection } from "../graph/selectors";
 import { getGraphTypeOptions } from "../graph/typeFilter";
@@ -12,11 +14,7 @@ export function useGraphNavigation(
   dispatch: Dispatch<GraphAction>,
   captureLayoutAnchor: (key: string) => void,
 ) {
-  const compound = useCompoundView(
-    state.document.id,
-    state.dag?.hierarchy?.id,
-    Object.keys(state.dag?.hierarchy?.groups ?? {}),
-  );
+  const compound = useCompoundView(state.document.id, Object.keys(getGroupNodes(state.dag)));
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState("");
   const [selectedTrack, setSelectedTrack] = useState("");
@@ -32,6 +30,8 @@ export function useGraphNavigation(
     setSelectedType("");
     setFocusedKey(null);
   }, [state.document.generation]);
+  const timeBasis = getTimelineClock(state.dag?.metadata).mode;
+  useEffect(() => setTimelineRange(null), [timeBasis]);
   useEffect(() => {
     if (selectedType && !typeOptions.includes(selectedType)) {
       setSelectedType("");
@@ -52,7 +52,7 @@ export function useGraphNavigation(
   function up(parentSelection: GraphSelection | null) {
     if (state.chartType === "compound") {
       const id = compound.view.focusGroupId;
-      enterGroup(id ? (state.dag?.hierarchy?.parentById[id] ?? null) : null);
+      enterGroup(id ? (state.dag?.hierarchy_edges?.find((edge) => edge.target === id)?.source ?? null) : null);
       return;
     }
     if (parentSelection) dispatch({ type: "selectionChanged", selection: parentSelection, pushHistory: true });

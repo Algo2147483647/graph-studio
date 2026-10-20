@@ -9,8 +9,341 @@ import GraphStage from "../rendering/GraphStage";
 import { DEFAULT_GRAPH_APPEARANCE } from "../graph/appearance";
 import { getVisibleTimeTicks } from "../rendering/TimelineBackdrop";
 import { defineSuite, defineTest } from "./harness";
+import { sanitizeTimelineSettings } from "../graph/timelineSettings";
+import { timelineTypeColor } from "../graph/timelineColors";
+import { projectTimelineStage } from "../layout/timeline-project";
+import { buildStageData } from "../layout/stage-layout";
+import { timelineBarBox } from "../layout/timeline-orientation";
+import { TIMELINE_CSS } from "../rendering/timelineStyles";
+import TimelinePointSettings from "../components/TimelinePointSettings";
+import TimelineIntervalSettings from "../components/TimelineIntervalSettings";
+import { TimelinePointTextSettings, TimelineIntervalTextSettings } from "../components/TimelineTextSettings";
+import { getSettingsCatalog } from "../components/settings/settingsCatalog";
 
 export const timelineRenderingSuite = defineSuite("Timeline rendering", [
+  defineTest(
+    "point and anchor styles render independently; interval titles follow automatic colors and italic font",
+    () => {
+      const dag = normalizeDagInput({
+        format: "graph-studio",
+        version: 3,
+        metadata: { timeline: { clock: { mode: "relative" } } },
+        nodes: { point: { type: "Event", time: { at: 5 } }, bar: { type: "Period", time: { start: 0, end: 10 } } },
+        edges: [{ id: "link", source: "bar", target: "point", metadata: { timeline: { sourceTime: 5 } } }],
+      });
+      const settings = sanitizeTimelineSettings({
+        colorBy: "type",
+        intervalTitle: "inside",
+        intervalTextColorMode: "event",
+        pointMarker: { shape: "square", size: 22, fill: "#112233", borderColor: "#abcdef", borderWidth: 3 },
+        anchorMarker: { shape: "diamond", size: 10, fill: "#456789", borderWidth: 2 },
+        pointTextColor: "#135790",
+        pointDateVisible: false,
+        leaderStyle: "dashed",
+        leaderColor: "#345678",
+        leaderWidth: 2,
+      });
+      const appearance = structuredClone(DEFAULT_GRAPH_APPEARANCE);
+      appearance.cssVars["--dag-title-font-style"] = "italic";
+      for (const orientation of ["horizontal", "vertical"] as const) {
+        const stage = buildTimelineStage({
+          dag,
+          selection: { type: "full" },
+          appearance,
+          timelineSettings: { ...settings, orientation },
+        })!;
+        const render = (key: string) =>
+          renderToStaticMarkup(
+            createElement(TimelineNode, {
+              node: stage.nodeMap[key],
+              isActive: false,
+              onClick() {},
+              onContextMenu() {},
+              onFocusChange() {},
+            }),
+          );
+        const point = render("point"),
+          bar = render("bar");
+        assert.match(point, /<rect[^>]*timeline-node__instant[^>]*width="22"/);
+        assert.match(point, /--timeline-marker-fill:#112233/);
+        assert.match(point, /--timeline-text-color:#135790/);
+        assert.doesNotMatch(point, /<text class="timeline-node__date"/);
+        assert.match(point, /--timeline-leader-dash:4 3/);
+        assert.equal((bar.match(/timeline-node__point timeline-node__anchor/g) || []).length, 3);
+        assert.match(bar, /--timeline-marker-fill:#456789/);
+        assert.ok(bar.includes(`--timeline-text-color:${stage.nodeMap.bar.timeline!.color}`));
+        const hidden = buildTimelineStage({
+          dag,
+          selection: { type: "full" },
+          timelineSettings: {
+            ...settings,
+            orientation,
+            pointMarker: { ...settings.pointMarker, visible: false },
+            anchorMarker: { ...settings.anchorMarker, visible: false },
+            leaderStyle: "none",
+          },
+        })!;
+        const markup = renderToStaticMarkup(
+          createElement(TimelineNode, {
+            node: hidden.nodeMap.point,
+            isActive: false,
+            onClick() {},
+            onContextMenu() {},
+            onFocusChange() {},
+          }),
+        );
+        assert.doesNotMatch(markup, /class="timeline-node__point|class="timeline-node__leader"/);
+        assert.match(markup, /role="button"/);
+        assert.equal(hidden.nodeMap.point.timeline!.start, 5);
+      }
+      assert.match(TIMELINE_CSS, /font-style: var\(--dag-title-font-style/);
+      assert(getSettingsCatalog("timeline").some((item) => item.id === "fontStyle"));
+      const menu = renderToStaticMarkup(createElement(TimelinePointSettings, { settings, onChange() {} }));
+      assert.match(menu, /Point marker shape/);
+      assert.doesNotMatch(menu, /Point title color|Show point time label|Label leaders/);
+      const intervalMenu = renderToStaticMarkup(createElement(TimelineIntervalSettings, { settings, onChange() {} }));
+      assert.match(intervalMenu, /Interval fill style/);
+      assert.doesNotMatch(intervalMenu, /Match interval|Interval title placement/);
+      const pointText = renderToStaticMarkup(createElement(TimelinePointTextSettings, { settings, onChange() {} }));
+      assert.match(pointText, /Point title color|Show point time label/);
+      assert.doesNotMatch(pointText, /Point marker shape/);
+      const intervalText = renderToStaticMarkup(
+        createElement(TimelineIntervalTextSettings, { settings, onChange() {} }),
+      );
+      assert.match(intervalText, /Match interval/);
+      assert.match(intervalText, /Interval title placement/);
+      assert.doesNotMatch(intervalText, /Interval fill style/);
+    },
+  ),
+  defineTest("zero cross-axis spread makes adjacent bars touch in tracks, flow, and explicit rows", () => {
+    for (const orientation of ["horizontal", "vertical"] as const) {
+      for (const layout of ["tracks", "flow"] as const) {
+        for (const rows of [false, true]) {
+          for (const width of [8, 36, 80]) {
+            const dag = normalizeDagInput({
+              format: "graph-studio",
+              version: 3,
+              metadata: { timeline: { clock: { mode: "relative" } } },
+              nodes: Object.fromEntries(
+                ["a", "b", "c"].map((id, i) => [
+                  id,
+                  { time: { start: 0, end: 10 }, ...(rows ? { space: i + 1 } : {}) },
+                ]),
+              ),
+              edges: [],
+            });
+            const stage = buildTimelineStage({
+              dag,
+              selection: { type: "full" },
+              timelineSettings: {
+                orientation,
+                layout,
+                horizontalSpread: 0,
+                intervalWidth: width,
+                intervalTitle: "inside",
+              },
+            })!;
+            const boxes = stage.nodes
+              .map(timelineBarBox)
+              .sort((a, b) => (orientation === "horizontal" ? a.y - b.y : a.x - b.x));
+            for (let i = 1; i < boxes.length; i++) {
+              const previous = boxes[i - 1],
+                current = boxes[i];
+              assert.equal(orientation === "horizontal" ? current.y - previous.y : current.x - previous.x, width);
+            }
+          }
+        }
+      }
+    }
+  }),
+  defineTest("direct routes keep time anchors and stay straight after orientation and range projection", () => {
+    const dag = normalizeDagInput({
+      format: "graph-studio",
+      version: 3,
+      metadata: { timeline: { clock: { mode: "relative" } } },
+      nodes: {
+        a: { space: 1, time: { start: 0, end: 10 } },
+        obstacle: { space: 2, time: { start: 0, end: 10 } },
+        b: { space: 3, time: { at: 8 } },
+      },
+      edges: [
+        { id: "ab", source: "a", target: "b", metadata: { timeline: { sourceTime: 2, targetTime: 8 } } },
+        { id: "ba", source: "b", target: "a", metadata: { timeline: { sourceTime: 8, targetTime: 2 } } },
+      ],
+    });
+    for (const orientation of ["horizontal", "vertical"] as const) {
+      const stage = buildTimelineStage({
+        dag,
+        selection: { type: "full" },
+        timelineSettings: { orientation, edgeRouting: "direct" },
+      })!;
+      const avoided = buildTimelineStage({
+        dag,
+        selection: { type: "full" },
+        timelineSettings: { orientation, edgeRouting: "avoid" },
+      })!;
+      assert.ok(avoided.edges.some((edge) => edge.points!.length > 2));
+      for (const edge of stage.edges) {
+        assert.equal(edge.points!.length, 2);
+        assert.doesNotMatch(edge.path, /[QC]/);
+        assert.deepEqual(edge.points![0], avoided.edges.find((e) => e.id === edge.id)!.points![0]);
+        assert.equal(edge.timeline!.backward, edge.id === "ba");
+      }
+      const projected = projectTimelineStage(stage, new Set(["a", "b", "obstacle"]), { start: 3, end: 9 })!;
+      for (const edge of projected.edges) {
+        assert.equal(edge.points!.length, 2);
+        assert.doesNotMatch(edge.path, /[QC]/);
+      }
+      assert.equal(projected.timeline!.edgeRouting, "direct");
+    }
+    assert.equal(sanitizeTimelineSettings({ edgeRouting: "invalid" }).edgeRouting, "avoid");
+  }),
+  defineTest("Timeline uses the same Type tokens as Node-link before and after filtering", () => {
+    const dag = normalizeDagInput({
+      format: "graph-studio",
+      version: 3,
+      nodes: {
+        a: { type: "Alpha", time: { start: "2000", end: "2003" } },
+        b: { type: "Beta", time: { at: "2001" } },
+        c: { type: " Alpha ", time: { at: "2002" } },
+      },
+      edges: [],
+    });
+    const nodes = buildStageData({ dag, selection: { type: "full" } })!;
+    const timeline = buildTimelineStage({ dag, selection: { type: "full" }, timelineSettings: { colorBy: "type" } })!;
+    for (const node of timeline.nodes) {
+      assert.deepEqual(node.colorTokens, nodes.nodeMap[node.key].colorTokens);
+      assert.equal(node.timeline!.color, node.colorTokens!.pinCore);
+    }
+    const filtered = projectTimelineStage(timeline, new Set(["b"]))!;
+    assert.deepEqual(filtered.nodeMap.b.colorTokens, nodes.nodeMap.b.colorTokens);
+    assert.notEqual(timeline.nodeMap.a.timeline!.color, timeline.nodeMap.b.timeline!.color);
+  }),
+  defineTest("Type colors cross tracks, survive filtering and exports without changing geometry", () => {
+    const dag = normalizeDagInput({
+      format: "graph-studio",
+      version: 3,
+      nodes: {
+        a: { type: "Period", track: "First", time: { start: "2000", end: "2004" } },
+        b: { type: "Period", track: "Second", time: { at: "2001" } },
+        c: { type: "Other", track: "First", time: { at: "2002" } },
+        d: { time: { at: "2003" } },
+      },
+      edges: [{ id: "ab", source: "a", target: "b" }],
+    });
+    const settings = sanitizeTimelineSettings(
+      JSON.parse(
+        JSON.stringify({
+          colorBy: "type",
+          typeColors: { Period: "#6c8ebf", Other: "rgba(10, 20, 30, 0.5)", invalid: "url(evil)" },
+        }),
+      ),
+    );
+    assert.equal(settings.typeColors.invalid, undefined);
+    for (const orientation of ["horizontal", "vertical"] as const) {
+      for (const layout of ["tracks", "flow"] as const) {
+        const stage = buildTimelineStage({
+          dag,
+          selection: { type: "full" },
+          timelineSettings: { ...settings, orientation, layout },
+        })!;
+        const trackStage = buildTimelineStage({
+          dag,
+          selection: { type: "full" },
+          timelineSettings: { ...settings, orientation, layout, colorBy: "track" },
+        })!;
+        assert.equal(stage.nodeMap.a.timeline!.color, "#6c8ebf");
+        assert.equal(stage.nodeMap.b.timeline!.color, "#6c8ebf");
+        assert.equal(stage.nodeMap.c.timeline!.color, "rgba(10, 20, 30, 0.5)");
+        assert.equal(stage.nodeMap.d.timeline!.color, "#64748b");
+        assert.equal(stage.edges[0].timeline!.color, "#6c8ebf");
+        for (const node of stage.nodes)
+          assert.deepEqual([node.x, node.y], [trackStage.nodeMap[node.key].x, trackStage.nodeMap[node.key].y]);
+        assert.equal(projectTimelineStage(stage, new Set(["b"]))!.nodeMap.b.timeline!.color, "#6c8ebf");
+        const svg = renderToStaticMarkup(
+          createElement(TimelineNode, {
+            node: stage.nodeMap.a,
+            isActive: false,
+            onClick() {},
+            onContextMenu() {},
+            onFocusChange() {},
+          }),
+        );
+        assert.match(svg, /--dag-timeline-color:#6c8ebf/);
+      }
+    }
+    assert.equal(timelineTypeColor("Period", {}), timelineTypeColor("Period", { Other: "#000000" }));
+    assert.match(timelineTypeColor("__proto__", {}), /^hsla\(/);
+    assert.equal(sanitizeTimelineSettings({ colorBy: "invalid", typeColors: [] }).colorBy, "track");
+  }),
+  defineTest("interval appearance survives sanitizing and stays separate from instant text", () => {
+    const settings = sanitizeTimelineSettings(
+      JSON.parse(
+        JSON.stringify({
+          intervalBorder: "dashed",
+          intervalBorderWidth: 3,
+          intervalBorderColor: "#123456",
+          intervalRadius: 0,
+          intervalTextColor: "#abcdef",
+        }),
+      ),
+    );
+    const dag = normalizeDagInput({
+      format: "graph-studio",
+      version: 3,
+      nodes: { a: { time: { start: "2000", end: "2005" } }, b: { time: { at: "2002" } } },
+      edges: [],
+    });
+    for (const orientation of ["horizontal", "vertical"] as const) {
+      const stage = buildTimelineStage({
+        dag,
+        selection: { type: "full" },
+        timelineSettings: { ...settings, orientation },
+      })!;
+      const render = (key: string) =>
+        renderToStaticMarkup(
+          createElement(TimelineNode, {
+            node: stage.nodeMap[key],
+            isActive: false,
+            onClick: () => {},
+            onContextMenu: () => {},
+            onFocusChange: () => {},
+          }),
+        );
+      assert.match(render("a"), /data-interval-border="dashed"/);
+      assert.match(render("a"), /--timeline-border-width:3/);
+      assert.match(render("a"), /--timeline-border-color:#123456/);
+      assert.match(render("a"), /--timeline-text-color:#abcdef/);
+      assert.match(render("a"), /class="timeline-node__duration"[^>]*rx="0"/);
+      assert.doesNotMatch(render("b"), /--timeline-text-color:/);
+    }
+    const invalid = sanitizeTimelineSettings({
+      intervalRadius: -2,
+      intervalBorderWidth: Infinity,
+      intervalTextColor: "url(evil)",
+    });
+    assert.equal(invalid.intervalRadius, 0);
+    assert.equal(invalid.intervalBorderWidth, 1.5);
+    assert.equal(invalid.intervalTextColor, "");
+  }),
+  defineTest("track headings follow explicit rows instead of allocated track positions", () => {
+    const dag = normalizeDagInput({
+      format: "graph-studio",
+      version: 3,
+      nodes: {
+        a: { track: "First", space: 4, time: { at: "2000" } },
+        b: { track: "Second", space: 1, time: { at: "2001" } },
+      },
+      edges: [],
+    });
+    for (const orientation of ["horizontal", "vertical"] as const) {
+      const stage = buildTimelineStage({ dag, selection: { type: "full" }, timelineSettings: { orientation } })!;
+      for (const track of stage.timeline!.tracks) {
+        const node = stage.nodes.find((node) => node.timeline!.track === track.id)!;
+        assert.equal(track.x + 10, orientation === "horizontal" ? node.y : node.x);
+      }
+    }
+  }),
   defineTest("labels render above markers and edges with translucent backgrounds and one accessible control", () => {
     const dag = normalizeDagInput({
       format: "graph-studio",

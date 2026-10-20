@@ -188,8 +188,7 @@ export const timelineSuite = defineSuite("Timeline time semantics and layout", [
     assert.equal(stage.nodeMap.orbit.timeline!.endY, stage.nodeMap.dock.timeline!.startY);
     const cruise = stage.nodeMap.cruise.timeline!;
     assert.ok(
-      Math.abs((cruise.endY - cruise.startY) / (cruise.end! - cruise.start!) - stage.timeline!.pixelsPerMillisecond) <
-        1e-12,
+      Math.abs((cruise.endY - cruise.startY) / (cruise.end! - cruise.start!) - stage.timeline!.pixelsPerUnit) < 1e-12,
     );
     assert.equal(stage.nodeMap.future.timeline!.status, "missing");
     assert.ok(stage.nodeMap.future.y > stage.nodeMap.dock.y);
@@ -359,7 +358,7 @@ export const timelineSuite = defineSuite("Timeline time semantics and layout", [
     );
     const reversed = stageFor({ ...input, nodes: Object.fromEntries(Object.entries(input.nodes).reverse()) });
     assert.deepEqual(stage.timeline!.tracks, reversed.timeline!.tracks);
-    const apolloOnly = stageFor({ ...input, nodes: { moon: input.nodes.moon } });
+    const apolloOnly = stageFor(input, { type: "node", key: "moon" });
     assert.equal(stage.nodeMap.moon.timeline!.color, apolloOnly.nodeMap.moon.timeline!.color);
   }),
   defineTest("full, forest and focused selections include disconnected cycles correctly", () => {
@@ -401,7 +400,7 @@ export const timelineSuite = defineSuite("Timeline time semantics and layout", [
           stage.nodeMap.a.y,
           stage.nodeMap.a.width,
           stage.nodeMap.a.height,
-          stage.timeline!.pixelsPerMillisecond,
+          stage.timeline!.pixelsPerUnit,
         ].every(Number.isFinite),
       );
       if (time?.at === "broken") assert.match(stage.warnings[0], /valid/);
@@ -564,7 +563,7 @@ export const timelineSuite = defineSuite("Timeline time semantics and layout", [
     assert.equal(stage.timeline!.start, bound);
     assert.equal(stage.timeline!.end, bound);
     assert.equal(stage.timeline!.ticks.length, 1);
-    assert.ok(Number.isFinite(stage.timeline!.pixelsPerMillisecond));
+    assert.ok(Number.isFinite(stage.timeline!.pixelsPerUnit));
     assert.ok(
       stage.nodes.every((node) => [node.x, node.y, node.timeline!.startY, node.timeline!.endY].every(Number.isFinite)),
     );

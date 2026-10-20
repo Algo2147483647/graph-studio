@@ -1,10 +1,13 @@
 import type { GraphChartType, GraphDocument } from "../../graph/types";
+import { TIMELINE_SCHEMA_FIELDS } from "./timelineSchemaFields";
 
-interface SchemaField {
+export interface SchemaField {
+  group?: string;
   path: string;
   type: string;
   requirement: string;
   description: string;
+  defaultValue?: string;
 }
 interface ChartSchema {
   fields: SchemaField[];
@@ -13,19 +16,50 @@ interface ChartSchema {
 const commonFields: SchemaField[] = [
   { path: "format", type: '"graph-studio"', requirement: "Required", description: "Document format." },
   { path: "version", type: "3", requirement: "Required", description: "Protocol version." },
-  { path: "nodes", type: "{ [id]: node }", requirement: "Required", description: "Unique IDs map to node objects." },
   {
-    path: "nodes[id].title / define / type",
+    path: "metadata.style",
     type: "string",
     requirement: "Optional",
-    description: "Title, Markdown description and category. Custom node fields are also supported.",
+    description:
+      "Relative path to a separate graph-studio-style JSON file, resolved from this graph inside the opened workspace. Store appearance and layout settings in the style file.",
+  },
+  { path: "nodes", type: "{ [id]: node }", requirement: "Required", description: "Unique IDs map to node objects." },
+  {
+    path: "nodes[id].title",
+    type: "string",
+    requirement: "Optional",
+    description: "Display title. Node IDs remain stable identifiers; custom node fields are allowed.",
+  },
+  {
+    path: "nodes[id].define",
+    type: "string",
+    requirement: "Optional",
+    description: "Markdown description shown in node details.",
+  },
+  {
+    path: "nodes[id].type",
+    type: "string",
+    requirement: "Optional",
+    description: "Category used for Type filtering and coloring.",
   },
   { path: "edges", type: "edge[]", requirement: "Required", description: "Relationships; an empty array is valid." },
   {
-    path: "edges[].id / source / target",
+    path: "edges[].id",
     type: "string",
     requirement: "Required",
-    description: "Unique edge ID and two existing node IDs. No self-loops or duplicate endpoint pairs.",
+    description: "Non-empty identifier, unique across all edges.",
+  },
+  {
+    path: "edges[].source",
+    type: "string",
+    requirement: "Required",
+    description: "Existing source node ID. Must differ from target.",
+  },
+  {
+    path: "edges[].target",
+    type: "string",
+    requirement: "Required",
+    description: "Existing target node ID. Directed source/target pairs must be unique.",
   },
 ];
 const example: GraphDocument = {
@@ -51,31 +85,21 @@ export const CHART_SCHEMAS: Record<GraphChartType, ChartSchema> = {
       ...commonFields,
       valueField,
       {
-        path: "hierarchy.id",
-        type: "string",
+        path: "hierarchy_edges[]",
+        type: "{ id, source, target }",
         requirement: "For grouping",
-        description: "Containment hierarchy identifier.",
-      },
-      {
-        path: "hierarchy.groups",
-        type: "{ [id]: { title } }",
-        requirement: "For grouping",
-        description: "Group IDs must be distinct from node IDs.",
-      },
-      {
-        path: "hierarchy.parentById",
-        type: "{ [childId]: groupId }",
-        requirement: "For grouping",
-        description: "One parent per node or group; no containment cycles. Edges remain independent of membership.",
+        description:
+          "Parent node → child node. One parent per child, no cycles. All groups are ordinary nodes and can be endpoints in edges.",
       },
     ],
     example: {
       ...example,
-      hierarchy: {
-        id: "services",
-        groups: { api: { title: "API service" } },
-        parentById: { request: "api", validate: "api" },
-      },
+      hierarchy_edges: Object.entries({ request: "api", validate: "api" }).map(([target, source]) => ({
+        id: `hierarchy:${target}`,
+        source,
+        target,
+      })),
+      nodes: { ...example.nodes, ...{ api: { title: "API service" } } },
     },
   },
   sankey: {
@@ -112,36 +136,17 @@ export const CHART_SCHEMAS: Record<GraphChartType, ChartSchema> = {
     },
   },
   timeline: {
-    fields: [
-      ...commonFields,
-      valueField,
-      {
-        path: "metadata.timeline",
-        type: "{ version: 1, timeZone?: 'UTC' }",
-        requirement: "View hint",
-        description: "Open in Timeline. The document remains protocol v3; diagram stays dag or is omitted.",
-      },
-      {
-        path: "nodes[id].time",
-        type: "{ at } | { start, end }",
-        requirement: "For placement",
-        description: "Date strings for an event or interval. Missing or invalid dates appear in the unplaced region.",
-      },
-      { path: "nodes[id].track", type: "string", requirement: "Optional", description: "Timeline track name." },
-      {
-        path: "metadata.timeline.asOf",
-        type: "date string",
-        requirement: "Optional",
-        description: "Snapshot date for ongoing intervals.",
-      },
-    ],
+    fields: [...commonFields, valueField, ...TIMELINE_SCHEMA_FIELDS],
     example: {
       format: "graph-studio",
       version: 3,
-      metadata: { timeline: { version: 1, timeZone: "UTC" } },
+      metadata: {
+        style: "timeline.style.json",
+        timeline: { timeZone: "UTC" },
+      },
       nodes: {
-        kickoff: { title: "Kickoff", time: { at: "2026-05-01" }, track: "Delivery" },
-        build: { title: "Build", time: { start: "2026-05-02", end: "2026-05-10" }, track: "Delivery" },
+        kickoff: { title: "Kickoff", type: "Milestone", time: { at: "2026-05-01" }, track: "Delivery" },
+        build: { title: "Build", type: "Phase", time: { start: "2026-05-02", end: "2026-05-10" }, track: "Delivery" },
       },
       edges: [{ id: "kickoff-build", source: "kickoff", target: "build", value: "starts" }],
     },

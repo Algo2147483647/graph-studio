@@ -1,35 +1,77 @@
-import { useEffect, useState } from "react";
+import { sanitizeTimelineClock, type TimelineClock } from "../graph/timelineClock";
 import type { TimelineViewSettings } from "../graph/timelineSettings";
 import NumericSetting from "./settings/NumericSetting";
+import { TimelineChoices, TimelineNumberField } from "./TimelineSettingFields";
 
 export interface TimelineControlsProps {
   settings: TimelineViewSettings;
+  clock?: TimelineClock;
   onChange: (patch: Partial<TimelineViewSettings>) => void;
   onReadapt: () => void;
   showArrangement?: boolean;
   showAxis?: boolean;
+  showRouting?: boolean;
 }
 
 export default function TimelineControls({
   settings,
+  clock = sanitizeTimelineClock(null),
   onChange,
   onReadapt,
   showArrangement = true,
   showAxis = true,
+  showRouting = true,
 }: TimelineControlsProps) {
-  const horizontalSpread = settings.horizontalSpread ?? 1;
-  const [step, setStep] = useState(String(settings.tickStep));
-  useEffect(() => setStep(String(settings.tickStep)), [settings.tickStep]);
-  function commitStep() {
-    const value = Number(step);
-    if (step.trim() && Number.isFinite(value)) onChange({ tickStep: value });
-    else setStep(String(settings.tickStep));
-  }
+  const horizontal = settings.orientation === "horizontal";
   return (
     <>
       {showArrangement && (
-        <section className="settings-section">
+        <section className="settings-section timeline-settings-section">
           <h3>Timeline arrangement</h3>
+          <div className="timeline-control-row">
+            <span>Direction</span>
+            <TimelineChoices
+              label="Timeline orientation"
+              value={settings.orientation}
+              options={[
+                {
+                  value: "vertical",
+                  label: "Vertical",
+                  icon: (
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      aria-hidden="true"
+                    >
+                      <path d="M8 2v12m-4-4 4 4 4-4" />
+                    </svg>
+                  ),
+                },
+                {
+                  value: "horizontal",
+                  label: "Horizontal",
+                  icon: (
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      aria-hidden="true"
+                    >
+                      <path d="M2 8h12m-4-4 4 4-4 4" />
+                    </svg>
+                  ),
+                },
+              ]}
+              onChange={(orientation) => onChange({ orientation, pins: {} })}
+            />
+          </div>
           <div className="layout-engine-grid" role="group" aria-label="Timeline arrangement">
             {(
               [
@@ -79,29 +121,43 @@ export default function TimelineControls({
               </button>
             ))}
           </div>
-          <div className="settings-slider-grid">
-            <NumericSetting
-              label="Timeline horizontal spread"
-              min={0}
-              max={300}
-              step={10}
-              unit="%"
-              value={horizontalSpread * 100}
-              defaultValue={100}
-              onChange={(value) => onChange({ horizontalSpread: value / 100 })}
+          <NumericSetting
+            label={horizontal ? "Timeline vertical spread" : "Timeline horizontal spread"}
+            min={0}
+            max={300}
+            step={10}
+            unit="%"
+            value={settings.horizontalSpread * 100}
+            defaultValue={100}
+            onChange={(value) => onChange({ horizontalSpread: value / 100 })}
+          />
+          {settings.layout === "flow" && Object.keys(settings.pins).length > 0 && (
+            <button type="button" className="timeline-text-action" onClick={() => onChange({ pins: {} })}>
+              Clear pinned positions ({Object.keys(settings.pins).length})
+            </button>
+          )}
+        </section>
+      )}
+      {showRouting && (
+        <section className="settings-section timeline-settings-section">
+          <h3>Connections</h3>
+          <div className="timeline-control-row">
+            <span>Routing</span>
+            <TimelineChoices
+              label="Timeline edge routing"
+              value={settings.edgeRouting}
+              options={[
+                { value: "direct", label: "Direct" },
+                { value: "avoid", label: "Avoid obstacles" },
+              ]}
+              onChange={(edgeRouting) => onChange({ edgeRouting })}
             />
-            {settings.layout === "flow" && Object.keys(settings.pins).length > 0 && (
-              <div className="settings-inline-actions">
-                <button type="button" className="studio-button" onClick={() => onChange({ pins: {} })}>
-                  Clear pinned positions ({Object.keys(settings.pins).length})
-                </button>
-              </div>
-            )}
           </div>
+          <p>Direct connects time anchors with a straight line. Avoid obstacles routes around interval bars.</p>
         </section>
       )}
       {showAxis && (
-        <section className="settings-section">
+        <section className="settings-section timeline-settings-section">
           <h3>Time axis</h3>
           <div className="layout-engine-grid" role="group" aria-label="Timeline axis mode">
             {(
@@ -135,80 +191,54 @@ export default function TimelineControls({
               </button>
             ))}
           </div>
-          {settings.axis === "linear" ? (
-            <div className="settings-slider-grid">
-              <label className="settings-field-label">
-                <span>Tick interval</span>
-                <input
-                  className="settings-select-input"
-                  aria-label="Timeline tick interval"
-                  type="number"
-                  step="any"
-                  value={step}
-                  disabled={settings.tickUnit === "auto"}
-                  onChange={(event) => setStep(event.target.value)}
-                  onBlur={commitStep}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") commitStep();
-                  }}
-                />
-              </label>
-              <label className="settings-field-label">
+          {clock.mode !== "relative" && settings.axis === "linear" && (
+            <div className="timeline-field-grid timeline-tick-fields">
+              <TimelineNumberField
+                label="Tick interval"
+                ariaLabel="Timeline tick interval"
+                value={settings.tickStep}
+                onChange={(tickStep) => onChange({ tickStep })}
+              />
+              <label className="timeline-field">
                 <span>Unit</span>
                 <select
-                  className="settings-select-input"
                   aria-label="Timeline tick unit"
                   value={settings.tickUnit}
-                  onChange={(event) => onChange({ tickUnit: event.target.value as TimelineViewSettings["tickUnit"] })}
+                  onChange={(e) => onChange({ tickUnit: e.target.value as TimelineViewSettings["tickUnit"] })}
                 >
-                  {(
-                    [
-                      ["auto", "Auto"],
-                      ["second", "Seconds"],
-                      ["minute", "Minutes"],
-                      ["hour", "Hours"],
-                      ["day", "Days"],
-                      ["week", "Weeks"],
-                      ["month", "Months"],
-                      ["year", "Years"],
-                    ] as const
-                  ).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
+                  {(["auto", "second", "minute", "hour", "day", "week", "month", "year"] as const).map((unit) => (
+                    <option key={unit} value={unit}>
+                      {unit === "auto" ? "Auto" : unit[0].toUpperCase() + unit.slice(1) + "s"}
                     </option>
                   ))}
                 </select>
               </label>
             </div>
-          ) : (
-            <div className="settings-slider-grid">
-              <NumericSetting
-                label="Time compression"
-                min={0}
-                max={100}
-                step={5}
-                unit="%"
-                value={settings.compactness * 100}
-                defaultValue={50}
-                disabled={settings.locked}
-                onChange={(value) => onChange({ compactness: value / 100 })}
-              />
-              <label className="settings-toggle-row">
-                <span>
-                  <strong>Lock time axis</strong>
-                </span>
-                <input
-                  type="checkbox"
-                  role="switch"
-                  aria-label="Lock time axis"
-                  checked={settings.locked}
-                  onChange={(event) => onChange({ locked: event.target.checked })}
-                />
-              </label>
-            </div>
           )}
-          <div className="settings-inline-actions">
-            <button type="button" className="studio-button" disabled={settings.locked} onClick={onReadapt}>
+          {settings.axis === "adaptive" && (
+            <NumericSetting
+              label="Time compression"
+              min={0}
+              max={100}
+              step={5}
+              unit="%"
+              value={settings.compactness * 100}
+              defaultValue={50}
+              disabled={settings.locked}
+              onChange={(value) => onChange({ compactness: value / 100 })}
+            />
+          )}
+          <div className="timeline-axis-actions">
+            <label>
+              <input
+                type="checkbox"
+                aria-label="Lock time axis"
+                checked={settings.locked}
+                onChange={(e) => onChange({ locked: e.target.checked })}
+              />
+              Lock axis
+            </label>
+            <button type="button" className="timeline-text-action" disabled={settings.locked} onClick={onReadapt}>
               Fit visible events
             </button>
           </div>
